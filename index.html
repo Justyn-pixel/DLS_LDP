@@ -360,7 +360,7 @@
             for (const line of allLinesFromFile) {
                 const trimmedLine = line.trim();
                 const segmentHeaderMatch = trimmedLine.match(/^Segment #(\d+)\s*:\s*(Line|Curve)/i);
-                const areaMatchTest = trimmedLine.match(/Area:\s*([\d\.]+)\s*Sq\.\s*Ft\.?/i); // Test for area line
+                const areaMatchTest = trimmedLine.match(/Area:\s*([\d\.]+)\s*Sq\.\s*Ft\.?/i); 
 
                 if (segmentHeaderMatch) {
                     if (segmentType && currentSegmentData.length > 0) {
@@ -374,17 +374,13 @@
                     currentSegmentData = []; 
                     continue; 
                 } else if (areaMatchTest) { 
-                    // If an area line is detected, we ensure the current segment (if any) is processed before moving on.
-                    // This helps if the area line is immediately after the last segment's data.
                     if (segmentType && currentSegmentData.length > 0) {
                         const result = processSegment(currentSegmentData, segmentType, lastSegmentCourseString, formattedLines.length === 0 ? firstCurveRLOverride : "auto", segmentCounter);
                         if (result.text) formattedLines.push(result.text);
                         if (result.warning) warnings.push(result.warning);
-                        // lastSegmentCourseString is not updated here as we are moving to non-segment processing
                     }
-                    segmentType = null; // Stop accumulating for segments
-                    currentSegmentData = []; // Clear segment data
-                    // The area line itself will be picked up by the dedicated loop below.
+                    segmentType = null; 
+                    currentSegmentData = []; 
                 }
 
 
@@ -393,21 +389,18 @@
                 }
             }
 
-            // Process the very last segment if it exists and wasn't followed by an area line in the loop
             if (segmentType && currentSegmentData.length > 0) {
                  const result = processSegment(currentSegmentData, segmentType, lastSegmentCourseString, formattedLines.length === 0 ? firstCurveRLOverride : "auto", segmentCounter);
                 if (result.text) formattedLines.push(result.text);
                 if (result.warning) warnings.push(result.warning);
             }
 
-            // Loop again specifically to find and process the Area line
-            console.log("Starting search for Area line..."); // DEBUG
+            console.log("Starting search for Area line..."); 
             for (const line of allLinesFromFile) {
                 const trimmedLine = line.trim();
-                // console.log("Checking for Area in line:", trimmedLine); // DEBUG - More verbose
                 const areaMatch = trimmedLine.match(/Area:\s*([\d\.]+)\s*Sq\.\s*Ft\.?/i);
                 if (areaMatch) {
-                    console.log("Area matched:", areaMatch[0], "Value:", areaMatch[1]); // DEBUG
+                    console.log("Area matched:", areaMatch[0], "Value:", areaMatch[1]); 
                     try {
                         const sqFtValue = parseFloat(areaMatch[1]);
                         if (!isNaN(sqFtValue)) {
@@ -415,21 +408,21 @@
                             const acres = sqFtValue / 43560;
                             const formattedAcres = acres.toFixed(3);
                             areaSummaryLine = `contains ${formattedSqFt} sq. ft. or ${formattedAcres} Acres`;
-                            console.log("Generated areaSummaryLine:", areaSummaryLine); // DEBUG
+                            console.log("Generated areaSummaryLine:", areaSummaryLine); 
                         } else {
                             warnings.push(`Could not parse square footage value from Area data: "${areaMatch[0]}"`);
-                            console.warn("NaN for sqFtValue from:", areaMatch[1]); // DEBUG
+                            console.warn("NaN for sqFtValue from:", areaMatch[1]); 
                         }
                     } catch (e) {
                         warnings.push(`Error processing Area data "${areaMatch[0]}": ${e.message}`);
-                        console.error("Error in area processing:", e); // DEBUG
+                        console.error("Error in area processing:", e); 
                     }
                     break; 
                 }
             }
             if (!areaSummaryLine) {
                  warnings.push("Area summary line was not generated. Check input file for 'Area: ... Sq. Ft.' format.");
-                 console.log("Area summary line was NOT generated after checking all lines."); // DEBUG
+                 console.log("Area summary line was NOT generated after checking all lines."); 
             }
             
             return {formattedLines, warnings, areaSummaryLine}; 
@@ -485,10 +478,10 @@
                     const dmsDelta = decimalToDMS(curve.deltaDecimal);
                     const chordBearing = parseBearing(curve.chordCourseStr); 
                     
-                    let rl = "R/L"; 
+                    let rl_display = "R/L"; // Default if undetermined
                     if (curveRLOverride !== "auto" && currentSegmentNumber === 1 && formattedLines.length === 0) { 
-                        rl = curveRLOverride === "L" ? "Left" : "Right";
-                        warning = (warning ? warning + " " : "") + `R/L for first curve manually set to ${rl} ${segmentContext}.`;
+                        rl_display = curveRLOverride === "L" ? "Left" : "Right";
+                        warning = (warning ? warning + " " : "") + `R/L for first curve manually set to ${rl_display} ${segmentContext}.`;
                     } else if (prevLineCourseStr) {
                         const tangentInBearing = parseBearing(prevLineCourseStr);
                         const tangentInAzimuth = bearingToAzimuth(tangentInBearing); 
@@ -502,27 +495,29 @@
                             const deltaHalf = curve.deltaDecimal / 2;
                             
                             if (Math.abs(Math.abs(deflectionToChord) - deltaHalf) < 1.5) { 
-                                rl = deflectionToChord > 0 ? "Right" : "Left";
+                                rl_display = deflectionToChord > 0 ? "Right" : "Left";
                             } else {
-                                rl = "R/L (Verify)"; 
+                                rl_display = "R/L (Verify)"; 
                                 warning = (warning ? warning + " " : "") + `Curve R/L detection uncertain ${segmentContext}. Deflection to chord (${deflectionToChord.toFixed(2)}°) vs. Delta/2 (${deltaHalf.toFixed(2)}°) differs. Prev: ${prevLineCourseStr}, Chord: ${curve.chordCourseStr}. Please verify.`;
                             }
                         } else {
-                             rl = "R/L (Calc Error)";
+                             rl_display = "R/L (Calc Error)";
                              warning = (warning ? warning + " " : "") + `Could not determine R/L for curve ${segmentContext}: Azimuth calculation failed. Prev: ${prevLineCourseStr}, Chord: ${curve.chordCourseStr}.`;
                         }
                     } else if (curveRLOverride === "auto") { 
-                         rl = "R/L (Needs Prev. Line)";
+                         rl_display = "R/L (Needs Prev. Line)";
                          warning = (warning ? warning + " " : "") + `Curve R/L ${segmentContext} cannot be auto-determined: No previous line segment course and no override. May be the first segment.`;
                     }
 
 
                     if (chordBearing) {
                         const roundedChordSeconds = Math.round(chordBearing.sec);
-                        outputText = `thence ${curve.length.toFixed(2)} feet ${rl} along the arc of a ${curve.radius.toFixed(2)} foot curve, having a central angle of ${formatDMS(dmsDelta)} and a long chord which bears ${expandDirection(chordBearing.dir1)} ${chordBearing.deg}°${String(chordBearing.min).padStart(2,'0')}'${String(roundedChordSeconds).padStart(2,'0')}" ${expandDirection(chordBearing.dir2)} ${curve.chordLength.toFixed(2)} Feet`;
+                        // New curve wording
+                        outputText = `thence ${curve.length.toFixed(2)} feet along the arc of a ${curve.radius.toFixed(2)} foot radius curve to the ${rl_display}, through a central angel of ${formatDMS(dmsDelta)}, with a long chord of ${expandDirection(chordBearing.dir1)} ${chordBearing.deg}°${String(chordBearing.min).padStart(2,'0')}'${String(roundedChordSeconds).padStart(2,'0')}" ${expandDirection(chordBearing.dir2)} ${curve.chordLength.toFixed(2)} feet;`;
                     } else {
                         warning = (warning ? warning + " " : "") + `Could not parse chord bearing for curve: "${curve.chordCourseStr}" ${segmentContext}.`;
-                        outputText = `thence ${curve.length.toFixed(2)} feet ${rl} along the arc of a ${curve.radius.toFixed(2)} foot curve, having a central angle of ${formatDMS(dmsDelta)} and an unparsed long chord.`;
+                        // Fallback output if chord bearing fails to parse
+                        outputText = `thence ${curve.length.toFixed(2)} feet along the arc of a ${curve.radius.toFixed(2)} foot radius curve to the ${rl_display}, through a central angel of ${formatDMS(dmsDelta)}, with an unparsed long chord.`;
                     }
                 } else {
                     warning = `Incomplete curve data ${segmentContext}. Required fields missing. Found: ${JSON.stringify(curve)}. Original data: ${segmentData.join('; ')}.`;
