@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Legal Description Parser with AI Summary</title>
+    <title>Legal Description Parser - Diamond Land Surveying</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     <style>
@@ -14,7 +14,7 @@
         textarea::-webkit-scrollbar-thumb:hover { background: #555; }
         .loader, .ai-loader {
             border: 5px solid #f3f3f3; /* Light grey */
-            border-top: 5px solid #3498db; /* Blue */
+            border-top: 5px solid #003366; /* Diamond Land Surveying Blue */
             border-radius: 50%;
             width: 40px;
             height: 40px;
@@ -36,32 +36,81 @@
             opacity: 0.5;
             cursor: not-allowed;
         }
+        /* Custom focus rings to match branding */
+        input:focus, select:focus, textarea:focus {
+            outline: 2px solid transparent;
+            outline-offset: 2px;
+            border-color: #003366 !important; /* Diamond Blue - important to override Tailwind defaults */
+            box-shadow: 0 0 0 2px rgba(0, 51, 102, 0.3) !important; /* Lighter Diamond Blue shadow */
+        }
+        /* Custom styling for the file input button part */
+        input[type="file"]::file-selector-button {
+            background-color: #003366; /* Diamond Blue */
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            margin-right: 1rem;
+            border-radius: 0.5rem 0 0 0.5rem; /* Rounded left corners */
+            font-weight: 600;
+            font-size: 0.875rem; /* text-sm */
+            cursor: pointer;
+            transition: background-color 0.15s ease-in-out;
+        }
+        input[type="file"]::file-selector-button:hover {
+            background-color: #002244; /* Darker Diamond Blue */
+        }
+        /* Wrapper for file input to style its focus state */
+        .file-input-wrapper {
+            display: block;
+            width: 100%;
+            border: 1px solid #D1D5DB; /* gray-300 */
+            border-radius: 0.5rem; /* rounded-lg */
+            background-color: #F9FAFB; /* bg-gray-50 */
+            cursor: pointer;
+            transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+        }
+        .file-input-wrapper:focus-within {
+            border-color: #003366; /* Diamond Blue */
+            box-shadow: 0 0 0 2px rgba(0, 51, 102, 0.3);
+        }
+        input[type="file"].custom-file-input {
+            color: #4B5563; /* gray-700 for the "No file chosen" text */
+            padding: 0.25rem; 
+        }
     </style>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700&display=swap" rel="stylesheet">
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
 
     <div class="bg-white p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-2xl">
-        <h1 class="text-3xl font-bold text-center text-gray-800 mb-8">Legal Description Parser</h1>
+        <div class="text-center mb-10">
+            <div class="inline-block mb-3">
+                 <img src="https://www.diamondlandsurveying.com/wp-content/uploads/2019/04/diamond-logo-1.jpg" alt="Diamond Land Surveying Logo" class="h-20 w-auto mx-auto">
+            </div>
+            <h1 class="text-3xl font-bold text-gray-800" style="font-family: 'Montserrat', sans-serif;">Legal Description Parser</h1>
+        </div>
 
         <div class="mb-6">
             <label for="txtFile" class="block text-sm font-medium text-gray-700 mb-1">1. Upload .txt File:</label>
-            <input type="file" id="txtFile" accept=".txt" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+            <div class="file-input-wrapper">
+                <input type="file" id="txtFile" accept=".txt" class="custom-file-input block w-full text-sm focus:outline-none">
+            </div>
         </div>
         
         <div class="mb-6">
             <label for="fileEncoding" class="block text-sm font-medium text-gray-700 mb-1">2. Select File Encoding (if known):</label>
-            <select id="fileEncoding" class="block w-full p-2 border border-gray-300 rounded-lg bg-gray-50 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm">
+            <select id="fileEncoding" class="block w-full p-2 border border-gray-300 rounded-lg bg-gray-50 text-sm">
                 <option value="auto">Auto-detect (UTF-8 default)</option>
                 <option value="windows-1252" selected>ANSI (Windows-1252)</option>
                 <option value="ISO-8859-1">ANSI (ISO-8859-1)</option>
             </select>
-            <p class="text-xs text-gray-500 mt-1">If you see '' characters in warnings or output, try a different encoding or re-save your file as UTF-8.</p>
+            <p class="text-xs text-gray-500 mt-1">If you see '' characters, try a different encoding or re-save your file as UTF-8.</p>
         </div>
 
         <div class="mb-6">
             <label for="firstCurveRL" class="block text-sm font-medium text-gray-700 mb-1">3. If first segment is a curve, specify its direction:</label>
-            <select id="firstCurveRL" class="block w-full p-2 border border-gray-300 rounded-lg bg-gray-50 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm">
+            <select id="firstCurveRL" class="block w-full p-2 border border-gray-300 rounded-lg bg-gray-50 text-sm">
                 <option value="auto" selected>Auto-detect (recommended)</option>
                 <option value="L">Left</option>
                 <option value="R">Right</option>
@@ -70,14 +119,13 @@
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-            <button id="processButton" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-150 ease-in-out">
+            <button id="processButton" class="w-full bg-[#003366] hover:bg-[#002244] text-white font-semibold py-3 px-4 rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-[#003366] focus:ring-opacity-50 transition duration-150 ease-in-out">
                 4. Process File
             </button>
             <button id="downloadButton" class="w-full bg-gray-400 hover:bg-gray-500 text-white font-semibold py-3 px-4 rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-opacity-50 transition duration-150 ease-in-out" disabled>
                 5. Download Text File
             </button>
         </div>
-
 
         <div id="statusArea" class="mt-6 text-center">
             <div id="loader" class="loader hidden"></div>
@@ -86,7 +134,7 @@
         
         <div class="mt-8">
             <label for="previewArea" class="block text-sm font-medium text-gray-700 mb-1">Parsed Output Preview:</label>
-            <textarea id="previewArea" rows="10" class="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 text-sm text-gray-800 focus:outline-none focus:ring-1 focus:ring-blue-500" readonly placeholder="Parsed legal description will appear here..."></textarea>
+            <textarea id="previewArea" rows="10" class="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 text-sm text-gray-800" readonly placeholder="Parsed legal description will appear here..."></textarea>
         </div>
 
         <div id="warningsContainer" class="mt-6 hidden">
@@ -97,18 +145,17 @@
         </div>
 
         <div id="aiSummarySection" class="mt-8 pt-6 border-t border-gray-200">
-            <h3 class="text-xl font-semibold text-gray-700 mb-3 text-center">AI Powered Insights</h3>
-            <button id="summarizeButton" class="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-4 rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 transition duration-150 ease-in-out mb-4" disabled>
+            <h3 class="text-xl font-semibold text-gray-700 mb-3 text-center" style="font-family: 'Montserrat', sans-serif;">AI Powered Insights</h3>
+            <button id="summarizeButton" class="w-full bg-[#003366] hover:bg-[#002244] text-white font-semibold py-3 px-4 rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-[#003366] focus:ring-opacity-50 transition duration-150 ease-in-out mb-4" disabled>
                 ✨ Summarize Description with AI
             </button>
             <div id="aiLoader" class="ai-loader hidden mx-auto"></div>
             <p id="aiStatusMessage" class="text-sm text-gray-600 text-center mb-2"></p>
             <div id="aiSummaryOutputContainer" class="hidden">
                 <label for="aiSummaryArea" class="block text-sm font-medium text-gray-700 mb-1">AI Generated Summary:</label>
-                <textarea id="aiSummaryArea" rows="6" class="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 text-sm text-gray-800 focus:outline-none focus:ring-1 focus:ring-green-500" readonly placeholder="AI summary will appear here..."></textarea>
+                <textarea id="aiSummaryArea" rows="6" class="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 text-sm text-gray-800" readonly placeholder="AI summary will appear here..."></textarea>
             </div>
         </div>
-
     </div>
 
     <script>
@@ -140,12 +187,10 @@
                 aiSummaryOutputContainer.classList.add('hidden');
                 summarizeButton.disabled = true;
                 downloadButton.disabled = true; 
-                downloadButton.classList.replace('bg-green-600', 'bg-gray-400');
-                downloadButton.classList.replace('hover:bg-green-700', 'hover:bg-gray-500');
-
+                downloadButton.classList.replace('bg-[#003366]', 'bg-gray-400'); 
+                downloadButton.classList.replace('hover:bg-[#002244]', 'hover:bg-gray-500'); 
 
                 aiStatusMessage.textContent = '';
-
                 statusMessage.textContent = 'Initializing...';
                 warningsAreaUL.innerHTML = ''; 
                 warningsContainer.classList.add('hidden');
@@ -183,8 +228,8 @@
                         if (parsedOutputForDownload.length > 0) { 
                             summarizeButton.disabled = false;
                             downloadButton.disabled = false;
-                            downloadButton.classList.replace('bg-gray-400', 'bg-green-600');
-                            downloadButton.classList.replace('hover:bg-gray-500', 'hover:bg-green-700');
+                            downloadButton.classList.replace('bg-gray-400', 'bg-[#003366]'); 
+                            downloadButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]'); 
                         }
                         
                         if (warnings.length > 0) {
@@ -317,10 +362,10 @@
             if (bearing.dir1 === 'S' && bearing.dir2 === 'E') return 180 - angle;
             if (bearing.dir1 === 'S' && bearing.dir2 === 'W') return 180 + angle;
             if (bearing.dir1 === 'N' && bearing.dir2 === 'W') return 360 - angle;
-            if (bearing.dir1 === 'N' && !bearing.dir2) return 0;
-            if (bearing.dir1 === 'E' && !bearing.dir2) return 90;
-            if (bearing.dir1 === 'S' && !bearing.dir2) return 180;
-            if (bearing.dir1 === 'W' && !bearing.dir2) return 270;
+            if (bearing.dir1 === 'N' && !bearing.dir2) return 0; // North
+            if (bearing.dir1 === 'E' && !bearing.dir2) return 90; // East
+            if (bearing.dir1 === 'S' && !bearing.dir2) return 180; // South
+            if (bearing.dir1 === 'W' && !bearing.dir2) return 270; // West
             return null;
         }
 
@@ -329,9 +374,9 @@
             const mDecimal = (decimalDegrees - d) * 60;
             const m = Math.floor(mDecimal);
             const sDecimal = (mDecimal - m) * 60;
-            let s = Math.round(sDecimal);
+            let s = Math.round(sDecimal * 100) / 100; // Round to 2 decimal places for seconds
             
-            if (s === 60) {
+            if (s >= 59.995) { // Handle rounding up to 60 seconds
                 s = 0;
                 let newM = m + 1;
                 if (newM === 60) {
@@ -344,7 +389,9 @@
         }
 
         function formatDMS(dms) {
-            return `${dms.d}°${String(dms.m).padStart(2, '0')}'${String(dms.s).padStart(2, '0')}"`;
+             // Ensure seconds are formatted to two decimal places if not whole, or no decimal if whole
+            const formattedSeconds = dms.s % 1 === 0 ? String(Math.round(dms.s)).padStart(2, '0') : dms.s.toFixed(2).padStart(5, '0');
+            return `${dms.d}°${String(dms.m).padStart(2, '0')}'${formattedSeconds}"`;
         }
         
         function parseLegalDescription(rawText, firstCurveRLOverride) {
@@ -359,28 +406,36 @@
 
             for (const line of allLinesFromFile) {
                 const trimmedLine = line.trim();
-                const segmentHeaderMatch = trimmedLine.match(/^Segment #(\d+)\s*:\s*(Line|Curve)/i);
-                const areaMatchTest = trimmedLine.match(/Area:\s*([\d\.]+)\s*Sq\.\s*Ft\.?/i); 
+                // Regex to match "Segment #X : Line" or "Segment #X : Curve"
+                const segmentHeaderMatch = trimmedLine.match(/^Segment\s+#(\d+)\s*:\s*(Line|Curve)/i);
+                const areaMatchTest = trimmedLine.match(/Area:\s*([\d.,]+)\s*Sq\.\s*Ft\.?/i); // Allow comma in area
 
                 if (segmentHeaderMatch) {
                     if (segmentType && currentSegmentData.length > 0) {
-                        const result = processSegment(currentSegmentData, segmentType, lastSegmentCourseString, formattedLines.length === 0 ? firstCurveRLOverride : "auto", segmentCounter); 
+                        // Process the previously accumulated segment
+                        const result = processSegment(currentSegmentData, segmentType, lastSegmentCourseString, 
+                                                      (formattedLines.length === 0 && segmentCounter === 1) ? firstCurveRLOverride : "auto", 
+                                                      segmentCounter); 
                         if (result.text) formattedLines.push(result.text);
                         if (result.warning) warnings.push(result.warning);
                         if (result.lastCourse) lastSegmentCourseString = result.lastCourse;
                     }
                     segmentCounter = parseInt(segmentHeaderMatch[1]); 
                     segmentType = segmentHeaderMatch[2]; 
-                    currentSegmentData = []; 
-                    continue; 
+                    currentSegmentData = []; // Reset for the new segment
+                    continue; // Skip to the next line
                 } else if (areaMatchTest) { 
+                    // If an area line is found, process any pending segment first
                     if (segmentType && currentSegmentData.length > 0) {
-                        const result = processSegment(currentSegmentData, segmentType, lastSegmentCourseString, formattedLines.length === 0 ? firstCurveRLOverride : "auto", segmentCounter);
+                        const result = processSegment(currentSegmentData, segmentType, lastSegmentCourseString, 
+                                                      (formattedLines.length === 0 && segmentCounter === 1) ? firstCurveRLOverride : "auto", 
+                                                      segmentCounter);
                         if (result.text) formattedLines.push(result.text);
                         if (result.warning) warnings.push(result.warning);
+                         // Do not update lastSegmentCourseString from area line
                     }
-                    segmentType = null; 
-                    currentSegmentData = []; 
+                    segmentType = null; // Reset segment type after processing area
+                    currentSegmentData = []; // Clear data
                 }
 
 
@@ -389,40 +444,39 @@
                 }
             }
 
+            // Process any remaining segment after the loop
             if (segmentType && currentSegmentData.length > 0) {
-                 const result = processSegment(currentSegmentData, segmentType, lastSegmentCourseString, formattedLines.length === 0 ? firstCurveRLOverride : "auto", segmentCounter);
+                 const result = processSegment(currentSegmentData, segmentType, lastSegmentCourseString, 
+                                              (formattedLines.length === 0 && segmentCounter === 1) ? firstCurveRLOverride : "auto", 
+                                              segmentCounter);
                 if (result.text) formattedLines.push(result.text);
                 if (result.warning) warnings.push(result.warning);
             }
 
-            console.log("Starting search for Area line..."); 
+            // Search for Area line specifically at the end or if not tied to a segment
             for (const line of allLinesFromFile) {
                 const trimmedLine = line.trim();
-                const areaMatch = trimmedLine.match(/Area:\s*([\d\.]+)\s*Sq\.\s*Ft\.?/i);
+                const areaMatch = trimmedLine.match(/Area:\s*([\d.,]+)\s*Sq\.\s*Ft\.?/i); // Allow comma
                 if (areaMatch) {
-                    console.log("Area matched:", areaMatch[0], "Value:", areaMatch[1]); 
                     try {
-                        const sqFtValue = parseFloat(areaMatch[1]);
+                        const sqFtValueString = areaMatch[1].replace(/,/g, ''); // Remove commas for parsing
+                        const sqFtValue = parseFloat(sqFtValueString);
                         if (!isNaN(sqFtValue)) {
                             const formattedSqFt = Math.round(sqFtValue).toLocaleString('en-US');
                             const acres = sqFtValue / 43560;
                             const formattedAcres = acres.toFixed(3);
                             areaSummaryLine = `contains ${formattedSqFt} sq. ft. or ${formattedAcres} Acres`;
-                            console.log("Generated areaSummaryLine:", areaSummaryLine); 
                         } else {
                             warnings.push(`Could not parse square footage value from Area data: "${areaMatch[0]}"`);
-                            console.warn("NaN for sqFtValue from:", areaMatch[1]); 
                         }
                     } catch (e) {
                         warnings.push(`Error processing Area data "${areaMatch[0]}": ${e.message}`);
-                        console.error("Error in area processing:", e); 
                     }
                     break; 
                 }
             }
-            if (!areaSummaryLine) {
+            if (!areaSummaryLine && allLinesFromFile.some(line => /area:/i.test(line) && !/area summary line was not generated/i.test(warnings.join('')))) {
                  warnings.push("Area summary line was not generated. Check input file for 'Area: ... Sq. Ft.' format.");
-                 console.log("Area summary line was NOT generated after checking all lines."); 
             }
             
             return {formattedLines, warnings, areaSummaryLine}; 
@@ -438,23 +492,25 @@
             if (type.toLowerCase() === 'line') {
                 const courseLengthLine = segmentData.find(l => l.toLowerCase().startsWith('course:'));
                 if (courseLengthLine) {
-                    const courseMatch = courseLengthLine.match(/Course:\s*([NSEW]\s*\d{1,3}[°\uFFFD]\s*\d{1,2}'\s*[\d\.]+"[NSEW])/i);
+                    // Regex for Course: NXX°XX'XX.X"E Length: XXX.XX
+                    const courseMatch = courseLengthLine.match(/Course:\s*([NSEW])\s*(\d{1,3})[°\uFFFD]\s*(\d{1,2})'\s*([\d\.]+)"\s*([NSEW])/i);
                     const lengthMatch = courseLengthLine.match(/Length:\s*([\d\.]+)'?/i);
 
                     if (courseMatch && lengthMatch) {
-                        const bearingStr = courseMatch[1];
-                        const bearing = parseBearing(bearingStr); 
+                        const bearing = {
+                            dir1: courseMatch[1].toUpperCase(),
+                            deg: parseInt(courseMatch[2]),
+                            min: parseInt(courseMatch[3]),
+                            sec: parseFloat(courseMatch[4]),
+                            dir2: courseMatch[5].toUpperCase()
+                        };
                         const length = parseFloat(lengthMatch[1]);
+                        const roundedSeconds = Math.round(bearing.sec);
 
-                        if (bearing) {
-                            const roundedSeconds = Math.round(bearing.sec);
-                            outputText = `thence ${expandDirection(bearing.dir1)} ${bearing.deg}°${String(bearing.min).padStart(2, '0')}'${String(roundedSeconds).padStart(2, '0')}" ${expandDirection(bearing.dir2)} ${length.toFixed(2)} feet`;
-                            lastCourseForNextSegment = bearingStr;
-                        } else {
-                            warning = `Could not parse bearing for line: "${bearingStr}" ${segmentContext}. Check bearing format.`;
-                        }
+                        outputText = `thence ${expandDirection(bearing.dir1)} ${bearing.deg}°${String(bearing.min).padStart(2, '0')}'${String(roundedSeconds).padStart(2, '0')}" ${expandDirection(bearing.dir2)} ${length.toFixed(2)} feet`;
+                        lastCourseForNextSegment = courseMatch[0].replace(/Course:\s*/i, '').split(/\s+Length:/i)[0].trim(); // Store the full bearing string
                     } else {
-                         warning = `Malformed line segment data (missing Course or Length): "${courseLengthLine}" ${segmentContext}.`;
+                         warning = `Malformed line segment data (missing Course or Length details): "${courseLengthLine}" ${segmentContext}.`;
                     }
                 } else {
                     warning = `No course/length data found for line segment ${segmentContext}. Data: ${segmentData.join('; ')}.`;
@@ -466,26 +522,32 @@
                     if ((match = line.match(/Length:\s*([\d\.]+)'?\s*Radius:\s*([\d\.]+)'?/i))) {
                         curve.length = parseFloat(match[1]);
                         curve.radius = parseFloat(match[2]);
-                    } else if ((match = line.match(/Delta:\s*([\d\.]+)\s*\(d\)/i))) {
+                    } else if ((match = line.match(/Delta Angle:\s*([\d\.]+)\s*\(d\)/i))) { // Changed from Delta: to Delta Angle:
                         curve.deltaDecimal = parseFloat(match[1]);
-                    } else if ((match = line.match(/Chord:\s*([\d\.]+)'?\s*Course:\s*([NSEW]\s*\d{1,3}[°\uFFFD]\s*\d{1,2}'\s*[\d\.]+"[NSEW])/i))) { 
+                    } else if ((match = line.match(/Chord:\s*([\d\.]+)'?\s*Course:\s*([NSEW])\s*(\d{1,3})[°\uFFFD]\s*(\d{1,2})'\s*([\d\.]+)"\s*([NSEW])/i))) { 
                         curve.chordLength = parseFloat(match[1]);
-                        curve.chordCourseStr = match[2];
+                        curve.chordBearing = { // Store as object
+                            dir1: match[2].toUpperCase(),
+                            deg: parseInt(match[3]),
+                            min: parseInt(match[4]),
+                            sec: parseFloat(match[5]),
+                            dir2: match[6].toUpperCase()
+                        };
+                        curve.chordCourseStr = `${match[2]} ${match[3]}°${match[4]}'${match[5]}" ${match[6]}`; // Store original string
                     }
                 });
 
-                if (curve.length !== undefined && curve.radius !== undefined && curve.deltaDecimal !== undefined && curve.chordLength !== undefined && curve.chordCourseStr !== undefined) {
+                if (curve.length !== undefined && curve.radius !== undefined && curve.deltaDecimal !== undefined && curve.chordLength !== undefined && curve.chordBearing !== undefined) {
                     const dmsDelta = decimalToDMS(curve.deltaDecimal);
-                    const chordBearing = parseBearing(curve.chordCourseStr); 
                     
-                    let rl_display = "R/L"; // Default if undetermined
-                    if (curveRLOverride !== "auto" && currentSegmentNumber === 1 && formattedLines.length === 0) { 
+                    let rl_display = "R/L"; 
+                    if (curveRLOverride !== "auto" && currentSegmentNumber === 1 && (formattedLines.length === 0 || (formattedLines.length > 0 && !formattedLines.some(fl => fl.includes("feet"))))) { 
                         rl_display = curveRLOverride === "L" ? "Left" : "Right";
                         warning = (warning ? warning + " " : "") + `R/L for first curve manually set to ${rl_display} ${segmentContext}.`;
                     } else if (prevLineCourseStr) {
-                        const tangentInBearing = parseBearing(prevLineCourseStr);
+                        const tangentInBearing = parseBearing(prevLineCourseStr); 
                         const tangentInAzimuth = bearingToAzimuth(tangentInBearing); 
-                        const chordAzimuth = bearingToAzimuth(chordBearing); 
+                        const chordAzimuth = bearingToAzimuth(curve.chordBearing); 
 
                         if (tangentInAzimuth !== null && chordAzimuth !== null) {
                             let deflectionToChord = chordAzimuth - tangentInAzimuth;
@@ -494,7 +556,8 @@
 
                             const deltaHalf = curve.deltaDecimal / 2;
                             
-                            if (Math.abs(Math.abs(deflectionToChord) - deltaHalf) < 1.5) { 
+                            // Increased tolerance for R/L detection
+                            if (Math.abs(Math.abs(deflectionToChord) - deltaHalf) < 2.5) { 
                                 rl_display = deflectionToChord > 0 ? "Right" : "Left";
                             } else {
                                 rl_display = "R/L (Verify)"; 
@@ -505,24 +568,17 @@
                              warning = (warning ? warning + " " : "") + `Could not determine R/L for curve ${segmentContext}: Azimuth calculation failed. Prev: ${prevLineCourseStr}, Chord: ${curve.chordCourseStr}.`;
                         }
                     } else if (curveRLOverride === "auto") { 
-                         rl_display = "R/L (Needs Prev. Line)";
+                         rl_display = "R/L (Needs Prev. Line/Override)";
                          warning = (warning ? warning + " " : "") + `Curve R/L ${segmentContext} cannot be auto-determined: No previous line segment course and no override. May be the first segment.`;
                     }
 
-
-                    if (chordBearing) {
-                        const roundedChordSeconds = Math.round(chordBearing.sec);
-                        // New curve wording
-                        outputText = `thence ${curve.length.toFixed(2)} feet along the arc of a ${curve.radius.toFixed(2)} foot radius curve to the ${rl_display}, through a central angel of ${formatDMS(dmsDelta)}, with a long chord of ${expandDirection(chordBearing.dir1)} ${chordBearing.deg}°${String(chordBearing.min).padStart(2,'0')}'${String(roundedChordSeconds).padStart(2,'0')}" ${expandDirection(chordBearing.dir2)} ${curve.chordLength.toFixed(2)} feet;`;
-                    } else {
-                        warning = (warning ? warning + " " : "") + `Could not parse chord bearing for curve: "${curve.chordCourseStr}" ${segmentContext}.`;
-                        // Fallback output if chord bearing fails to parse
-                        outputText = `thence ${curve.length.toFixed(2)} feet along the arc of a ${curve.radius.toFixed(2)} foot radius curve to the ${rl_display}, through a central angel of ${formatDMS(dmsDelta)}, with an unparsed long chord.`;
-                    }
+                    const roundedChordSeconds = Math.round(curve.chordBearing.sec);
+                    outputText = `thence ${curve.length.toFixed(2)} feet along the arc of a ${curve.radius.toFixed(2)} foot radius curve to the ${rl_display}, through a central angle of ${formatDMS(dmsDelta)}, with a long chord of ${expandDirection(curve.chordBearing.dir1)} ${curve.chordBearing.deg}°${String(curve.chordBearing.min).padStart(2,'0')}'${String(roundedChordSeconds).padStart(2,'0')}" ${expandDirection(curve.chordBearing.dir2)} ${curve.chordLength.toFixed(2)} feet;`;
+                    
                 } else {
                     warning = `Incomplete curve data ${segmentContext}. Required fields missing. Found: ${JSON.stringify(curve)}. Original data: ${segmentData.join('; ')}.`;
                 }
-                lastCourseForNextSegment = null; 
+                lastCourseForNextSegment = null; // Curves don't typically set up a simple next tangent like lines do for this logic
             }
             return { text: outputText, warning: warning, lastCourse: lastCourseForNextSegment };
         }
@@ -530,8 +586,8 @@
         async function generateAndDownloadTxt(formattedLinesArray) { 
             try {
                 const textContent = formattedLinesArray.join('\n');
-                const blob = new Blob([textContent], { type: "text/plain;charset=utf-8" }); // Specify UTF-8 for output
-                saveAs(blob, `legal_description.txt`); 
+                const blob = new Blob([textContent], { type: "text/plain;charset=utf-8" }); 
+                saveAs(blob, `legal_description_parsed.txt`); 
             } catch (error) {
                 console.error("Error generating TXT file:", error);
                 throw new Error('Error generating text file. See console for details.'); 
