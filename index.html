@@ -7,14 +7,22 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     <style>
-        body { font-family: 'Inter', sans-serif; }
+        body { 
+            font-family: 'Inter', sans-serif; 
+            /* Replace with your actual image path when deploying */
+            background-image: url('assets/background-topo.jpg'); 
+            background-size: cover;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+            background-position: center center;
+        }
         textarea::-webkit-scrollbar { width: 8px; }
         textarea::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
         textarea::-webkit-scrollbar-thumb { background: #888; border-radius: 10px; }
         textarea::-webkit-scrollbar-thumb:hover { background: #555; }
-        .loader { /* Removed .ai-loader as it's no longer needed */
-            border: 5px solid #f3f3f3; /* Light grey */
-            border-top: 5px solid #003366; /* Diamond Land Surveying Blue */
+        .loader { 
+            border: 5px solid #f3f3f3; 
+            border-top: 5px solid #003366; 
             border-radius: 50%;
             width: 40px;
             height: 40px;
@@ -31,7 +39,6 @@
             opacity: 0.5;
             cursor: not-allowed;
         }
-        /* Custom focus rings to match branding */
         input:focus, select:focus, textarea:focus {
             outline: 2px solid transparent;
             outline-offset: 2px;
@@ -49,13 +56,13 @@
             line-height: 16px;
             text-align: center;
             border-radius: 50%;
-            background-color: #003366; /* Diamond Blue */
+            background-color: #003366; 
             color: white;
             font-size: 10px;
             font-weight: bold;
             cursor: help;
             margin-left: 4px;
-            position: relative; /* For tooltip positioning */
+            position: relative; 
         }
         .tooltip {
             visibility: hidden;
@@ -67,15 +74,15 @@
             padding: 8px;
             position: absolute;
             z-index: 10;
-            bottom: 125%; /* Position above the icon */
+            bottom: 125%; 
             left: 50%;
-            margin-left: -110px; /* Center the tooltip */
+            margin-left: -110px; 
             opacity: 0;
             transition: opacity 0.3s;
-            font-size: 0.75rem; /* text-xs */
-            line-height: 1.25; /* leading-tight */
+            font-size: 0.75rem; 
+            line-height: 1.25; 
         }
-        .tooltip::after { /* Tooltip arrow */
+        .tooltip::after { 
             content: "";
             position: absolute;
             top: 100%;
@@ -93,7 +100,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700&display=swap" rel="stylesheet">
 </head>
-<body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
 
     <div class="bg-white p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-2xl">
         <div class="text-center mb-10">
@@ -187,14 +194,6 @@
             const dropZone = document.getElementById('dropZone');
             const selectFileButton = document.getElementById('selectFileButton');
 
-            // AI related elements are removed from JS as well
-            // const summarizeButton = document.getElementById('summarizeButton');
-            // const aiLoader = document.getElementById('aiLoader');
-            // const aiStatusMessage = document.getElementById('aiStatusMessage');
-            // const aiSummaryArea = document.getElementById('aiSummaryArea');
-            // const aiSummaryOutputContainer = document.getElementById('aiSummaryOutputContainer');
-
-            // --- File Input Handling ---
             selectFileButton.addEventListener('click', () => {
                 txtFileInput.click(); 
             });
@@ -240,14 +239,10 @@
             processButton.addEventListener('click', async () => {
                 previewArea.value = ''; 
                 parsedOutputForDownload = []; 
-                // aiSummaryArea.value = ''; // AI related
-                // aiSummaryOutputContainer.classList.add('hidden'); // AI related
-                // summarizeButton.disabled = true; // AI related
                 downloadButton.disabled = true; 
                 downloadButton.classList.replace('bg-[#003366]', 'bg-gray-400'); 
                 downloadButton.classList.replace('hover:bg-[#002244]', 'hover:bg-gray-500'); 
 
-                // aiStatusMessage.textContent = ''; // AI related
                 statusMessage.textContent = 'Initializing...';
                 warningsAreaUL.innerHTML = ''; 
                 warningsContainer.classList.add('hidden');
@@ -283,7 +278,6 @@
                         previewArea.value = parsedOutputForDownload.join('\n');
                         
                         if (parsedOutputForDownload.length > 0) { 
-                            // summarizeButton.disabled = false; // AI related
                             downloadButton.disabled = false;
                             downloadButton.classList.replace('bg-gray-400', 'bg-[#003366]'); 
                             downloadButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]'); 
@@ -298,7 +292,7 @@
                             warningsContainer.classList.remove('hidden');
                             statusMessage.textContent = 'Processing complete. Please review warnings.';
                         } else if (parsedOutputForDownload.length > 0) {
-                           statusMessage.textContent = 'Processing complete. Ready to download.'; // Updated message
+                           statusMessage.textContent = 'Processing complete. Ready to download.'; 
                         } else {
                            statusMessage.textContent = 'Processing complete. No data parsed.';
                         }
@@ -330,9 +324,6 @@
                     statusMessage.textContent = `Error downloading file: ${error.message}`;
                 }
             });
-
-            // AI related summarizeButton event listener removed
-
         });
 
         function expandDirection(shorthand) {
