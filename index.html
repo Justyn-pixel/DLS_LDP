@@ -9,7 +9,6 @@
     <style>
         body { 
             font-family: 'Inter', sans-serif; 
-            /* Replace with your actual image path when deploying */
             background-image: url('assets/background-topo.jpg'); 
             background-size: cover;
             background-repeat: no-repeat;
@@ -174,7 +173,6 @@
                 <ul></ul>
             </div>
         </div>
-
         </div>
 
     <script>
@@ -426,8 +424,8 @@
                 if (segmentHeaderMatch) {
                     if (segmentType && currentSegmentData.length > 0) {
                         const result = processSegment(currentSegmentData, segmentType, lastSegmentCourseString, 
-                                                      (formattedLines.length === 0 && segmentCounter === 1) ? firstCurveRLOverride : "auto", 
-                                                      segmentCounter); 
+                                                      firstCurveRLOverride, 
+                                                      segmentCounter, formattedLines.length === 0); 
                         if (result.text) formattedLines.push(result.text);
                         if (result.warning) warnings.push(result.warning);
                         if (result.lastCourse) lastSegmentCourseString = result.lastCourse;
@@ -439,8 +437,8 @@
                 } else if (areaMatchTest) { 
                     if (segmentType && currentSegmentData.length > 0) {
                         const result = processSegment(currentSegmentData, segmentType, lastSegmentCourseString, 
-                                                      (formattedLines.length === 0 && segmentCounter === 1) ? firstCurveRLOverride : "auto", 
-                                                      segmentCounter);
+                                                      firstCurveRLOverride, 
+                                                      segmentCounter, formattedLines.length === 0);
                         if (result.text) formattedLines.push(result.text);
                         if (result.warning) warnings.push(result.warning);
                     }
@@ -456,8 +454,8 @@
 
             if (segmentType && currentSegmentData.length > 0) {
                  const result = processSegment(currentSegmentData, segmentType, lastSegmentCourseString, 
-                                              (formattedLines.length === 0 && segmentCounter === 1) ? firstCurveRLOverride : "auto", 
-                                              segmentCounter);
+                                              firstCurveRLOverride, 
+                                              segmentCounter, formattedLines.length === 0);
                 if (result.text) formattedLines.push(result.text);
                 if (result.warning) warnings.push(result.warning);
             }
@@ -490,7 +488,7 @@
             return {formattedLines, warnings, areaSummaryLine}; 
         }
 
-        function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, currentSegmentNumber) {
+        function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, currentSegmentNumber, isFirstSegment) {
             let outputText = "";
             let warning = null;
             let lastCourseForNextSegment = null;
@@ -583,7 +581,7 @@
                          warning += (warning ? " " : "") + `"Course In:" data missing for curve ${segmentContext}, cannot determine tangency.`;
                     }
 
-                    if (curveRLOverride !== "auto" && currentSegmentNumber === 1 && (formattedLines.length === 0 || (formattedLines.length > 0 && !formattedLines.some(fl => fl.includes("feet"))))) { 
+                    if (curveRLOverride !== "auto" && isFirstSegment) { 
                         rl_display = curveRLOverride === "L" ? "Left" : "Right";
                         if (warning === null) warning = "";
                         warning += (warning ? " " : "") + `R/L for first curve manually set to ${rl_display} ${segmentContext}.`;
@@ -624,7 +622,6 @@
                     let prefixOutput = "";
                     if (nonTangentLabelText) prefixOutput += nonTangentLabelText + " ";
                     if (rlVerifyLabelText) prefixOutput += rlVerifyLabelText + " ";
-
 
                     const roundedChordSeconds = Math.round(curve.chordBearing.sec);
                     outputText = `${prefixOutput.trim()} thence ${curve.length.toFixed(2)} feet along the arc of a ${curve.radius.toFixed(2)} foot radius curve to the ${rl_display}, through a central angle of ${formatDMS(dmsDelta)}, with a long chord of ${expandDirection(curve.chordBearing.dir1)} ${curve.chordBearing.deg}°${String(curve.chordBearing.min).padStart(2,'0')}'${String(roundedChordSeconds).padStart(2,'0')}" ${expandDirection(curve.chordBearing.dir2)} ${curve.chordLength.toFixed(2)} feet;`;
