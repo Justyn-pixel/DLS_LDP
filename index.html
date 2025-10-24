@@ -489,6 +489,22 @@
                             currentCoordinates, // NEW: Pass current position
                             lastSegmentWasCurve // NEW
                         ); 
+                        
+                        // *** NEW LOGIC: Modify previous line if this is a curve ***
+                        if (segmentType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) {
+                            let lastLine = formattedLines.pop();
+                            // Only modify if it looks like a line segment ending
+                            if (lastLine.endsWith('feet;')) { 
+                                if (result.tangencyStatus === 'non-tangent') {
+                                    lastLine = lastLine.replace(/feet;$/, 'feet to a point of non-tangent curvature;');
+                                } else {
+                                    lastLine = lastLine.replace(/feet;$/, 'feet to a point of curvature;');
+                                }
+                            }
+                            formattedLines.push(lastLine);
+                        }
+                        // *** END NEW LOGIC ***
+
                         if (result.text) formattedLines.push(result.text);
                         if (result.warning) warnings.push(result.warning);
                         if (result.segmentData) segmentsData.push(result.segmentData); // NEW
@@ -517,6 +533,21 @@
                             currentCoordinates,
                             lastSegmentWasCurve
                         );
+
+                        // *** NEW LOGIC: Modify previous line if this is a curve ***
+                        if (segmentType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) {
+                            let lastLine = formattedLines.pop();
+                            if (lastLine.endsWith('feet;')) {
+                                if (result.tangencyStatus === 'non-tangent') {
+                                    lastLine = lastLine.replace(/feet;$/, 'feet to a point of non-tangent curvature;');
+                                } else {
+                                    lastLine = lastLine.replace(/feet;$/, 'feet to a point of curvature;');
+                                }
+                            }
+                            formattedLines.push(lastLine);
+                        }
+                        // *** END NEW LOGIC ***
+
                         if (result.text) formattedLines.push(result.text);
                         if (result.warning) warnings.push(result.warning);
                         if (result.segmentData) segmentsData.push(result.segmentData);
@@ -549,6 +580,21 @@
                      currentCoordinates,
                      lastSegmentWasCurve
                  );
+                
+                // *** NEW LOGIC: Modify previous line if this is a curve ***
+                if (segmentType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) {
+                    let lastLine = formattedLines.pop();
+                    if (lastLine.endsWith('feet;')) {
+                        if (result.tangencyStatus === 'non-tangent') {
+                            lastLine = lastLine.replace(/feet;$/, 'feet to a point of non-tangent curvature;');
+                        } else {
+                            lastLine = lastLine.replace(/feet;$/, 'feet to a point of curvature;');
+                        }
+                    }
+                    formattedLines.push(lastLine);
+                }
+                // *** END NEW LOGIC ***
+
                 if (result.text) formattedLines.push(result.text);
                 if (result.warning) warnings.push(result.warning);
                 if (result.segmentData) segmentsData.push(result.segmentData);
@@ -593,6 +639,7 @@
             let lastCourseForNextSegment = null; // For tangency checks
             let endCoordinates = null; // NEW
             let segmentDataObject = { segment: currentSegmentNumber, type: type }; // NEW
+            let tangencyStatus = null; // *** NEW ***
             const segmentContext = `(Segment #${currentSegmentNumber})`;
             const [startX, startY] = startCoordinates;
 
@@ -613,7 +660,7 @@
                         const length = parseFloat(lengthMatch[1]);
                         const roundedSeconds = Math.round(bearing.sec);
 
-                        // Format for text output
+                        // Format for text output - Semicolon will be replaced later if needed
                         outputText = `thence ${expandDirection(bearing.dir1)} ${bearing.deg}°${String(bearing.min).padStart(2, '0')}'${String(roundedSeconds).padStart(2, '0')}" ${expandDirection(bearing.dir2)} ${length.toFixed(2)} feet;`;
                         
                         // Store for next segment's tangency check
@@ -697,10 +744,10 @@
                     let nonTangentLabelText = ""; 
                     let rlVerifyLabelText = ""; 
 
-                    // *** THIS IS THE MODIFIED LINE ***
                     const TANGENCY_TOLERANCE_DEGREES = (5 / 3600); // 5 seconds of tolerance
 
                     // --- Tangency Check ---
+                    tangencyStatus = 'tangent'; // *** NEW: Assume tangent unless proven otherwise ***
                     let tangentInBearing = null;
                     if (prevLineCourseStr) {
                         tangentInBearing = parseBearing(prevLineCourseStr);
@@ -717,17 +764,25 @@
                                                          (Math.abs(diff - 360) <= TANGENCY_TOLERANCE_DEGREES);
                             if (!isEffectivelyCollinear) {
                                 nonTangentLabelText = "(Non-Tangent)";
+                                tangencyStatus = 'non-tangent'; // *** NEW ***
                             }
                         } else {
                              if (warning === null) warning = ""; 
                              warning += (warning ? " " : "") + `Could not check tangency: Could not parse Course In azimuth ${segmentContext}. CourseIn: ${curve.courseInStr}.`;
+                             tangencyStatus = 'unknown'; // *** NEW ***
                         }
                     } else if (prevLineCourseStr && !curve.courseInStr) {
-                         // This is a common case, not necessarily a warning, but we can't check tangency.
-                         // We rely on R/L detection.
-                    } else if (lastSegmentWasCurve && !prevLineCourseStr && curve.courseInBearing) {
-                        // This logic is complex. For now, we'll rely on the Course In from the text file if present.
+                         // This is a common case, not necessarily a warning.
+                         // We will *infer* tangency from R/L detection.
+                         tangencyStatus = 'inferred'; // *** NEW ***
+                    } else if (lastSegmentWasCurve) {
+                        // Previous segment was a curve, assume compound curve (tangent)
+                        tangencyStatus = 'tangent';
+                    } else {
+                        // No previous line, must be non-tangent or first segment
+                        tangencyStatus = 'non-tangent';
                     }
+
 
                     // --- R/L Detection ---
                     if (curveRLOverride !== "auto" && isFirstSegment) { 
@@ -749,10 +804,15 @@
                             if (Math.abs(Math.abs(deflectionToChord) - deltaHalf) < 2.5) { 
                                 rl_calc = deflectionToChord > 0 ? "R" : "L";
                                 rl_display = rl_calc === "R" ? "Right" : "Left";
+                                // If tangency was 'inferred', and this test passes, we can be more confident
+                                if (tangencyStatus === 'inferred') {
+                                    tangencyStatus = 'tangent';
+                                }
                             } else {
-                                // This is a good sign of non-tangency if not already flagged
-                                if (!nonTangentLabelText) {
+                                // This is a good sign of non-tangency
+                                if (tangencyStatus !== 'non-tangent') {
                                     nonTangentLabelText = "(Non-Tangent)";
+                                    tangencyStatus = 'non-tangent'; // *** NEW ***
                                 }
                                 rl_calc = null; // Can't determine
                                 rl_display = "R/L"; 
@@ -786,7 +846,10 @@
 
                     // --- Text Output ---
                     let prefixOutput = "";
-                    if (nonTangentLabelText) prefixOutput += nonTangentLabelText + " ";
+                    // Only show (Non-Tangent) if we are sure
+                    if (tangencyStatus === 'non-tangent' && nonTangentLabelText) {
+                         prefixOutput += nonTangentLabelText + " ";
+                    }
                     if (rlVerifyLabelText) prefixOutput += rlVerifyLabelText + " ";
 
                     const roundedChordSeconds = Math.round(curve.chordBearing.sec);
@@ -842,7 +905,8 @@
                 warning: warning ? warning.trim() : null, 
                 lastCourse: lastCourseForNextSegment,
                 endCoordinates: endCoordinates, // NEW
-                segmentData: segmentDataObject // NEW
+                segmentData: segmentDataObject, // NEW
+                tangencyStatus: tangencyStatus // *** NEW ***
             };
         }
 
