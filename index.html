@@ -228,10 +228,16 @@
         let segmentsDataForExport = []; // NEW: For CSV/KML
         let coordinatesForPlotting = []; // NEW: For Plot/KML/Calc
         let areaFromFile = null; // NEW: For comparison
+        let filePobCoords = null; // *** NEW *** {north: Y, east: X}
 
         // --- CONSTANTS ---
         const R2D = 180 / Math.PI;
         const D2R = Math.PI / 180;
+        const GEOMETRY_TOLERANCE = 0.005; // feet
+        const TANGENCY_TOLERANCE_DEGREES = (5 / 3600); // 5 seconds
+        const NINETY_DEG_TOLERANCE = 1.0; // Tolerance for Tangent vs Radial check (degrees)
+        const DELTA_TOLERANCE = 1.0; // Tolerance for Radial In vs Radial Out check (degrees)
+
 
         // --- DOM Event Listeners ---
         document.addEventListener('DOMContentLoaded', () => {
@@ -306,6 +312,7 @@
                 segmentsDataForExport = [];
                 coordinatesForPlotting = [[0, 0]]; // Start at POB [0,0]
                 areaFromFile = null;
+                filePobCoords = null; // *** NEW ***
                 
                 // Disable download buttons
                 downloadButton.disabled = true;
@@ -345,6 +352,10 @@
                         statusMessage.textContent = 'Parsing legal description...';
                         const rawText = event.target.result;
                         
+                        // *** NEW: Parse POB Coordinates first ***
+                        filePobCoords = parsePobCoordinates(rawText);
+                        // *** END NEW ***
+
                         // 2. Run the main parsing function
                         const {
                             formattedLines, 
@@ -386,6 +397,9 @@
                         }
                         
                         // 5. Update UI (Warnings)
+                        if (!filePobCoords) { // Add POB warning if needed
+                            warnings.push("Could not find/parse 'Point of Beginning' coordinates in the file. Line endpoint validation skipped.");
+                        }
                         if (warnings.length > 0) {
                             warnings.forEach(warning => {
                                 const li = document.createElement('li');
@@ -471,6 +485,23 @@
 
         // --- Core Parsing Logic ---
 
+        // *** NEW Function ***
+        function parsePobCoordinates(rawText) {
+            const lines = rawText.split('\n');
+            for (const line of lines) {
+                const trimmedLine = line.trim();
+                const pobMatch = trimmedLine.match(/Point\s+of\s+Beginning\s*:\s*North:\s*([\d\.]+)'?\s*East:\s*([\d\.]+)'?/i);
+                if (pobMatch) {
+                    const north = parseFloat(pobMatch[1]);
+                    const east = parseFloat(pobMatch[2]);
+                    if (!isNaN(north) && !isNaN(east)) {
+                        return { north: north, east: east };
+                    }
+                }
+            }
+            return null; // Not found or couldn't parse
+        }
+
         function parseLegalDescription(rawText, firstCurveRLOverride) {
             const allLinesFromFile = rawText.split('\n');
             const formattedLines = [];
@@ -502,14 +533,13 @@
                             firstCurveRLOverride, 
                             segmentCounter, 
                             formattedLines.length === 0,
-                            currentCoordinates, // NEW: Pass current position
-                            lastSegmentWasCurve // NEW
+                            currentCoordinates, // Pass current *calculated* position
+                            lastSegmentWasCurve 
                         ); 
                         
-                        // *** NEW LOGIC: Modify previous line if this is a curve ***
+                        // Modify previous line if this is a curve 
                         if (segmentType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) {
                             let lastLine = formattedLines.pop();
-                            // Only modify if it looks like a line segment ending
                             if (lastLine.endsWith('feet;')) { 
                                 if (result.tangencyStatus === 'non-tangent') {
                                     lastLine = lastLine.replace(/feet;$/, 'feet to a point of non-tangent curvature;');
@@ -519,18 +549,21 @@
                             }
                             formattedLines.push(lastLine);
                         }
-                        // *** END NEW LOGIC ***
 
                         if (result.text) formattedLines.push(result.text);
-                        if (result.warning) warnings.push(result.warning);
-                        if (result.segmentData) segmentsData.push(result.segmentData); // NEW
+                        // Add validation warnings 
+                        if(result.validationWarnings && result.validationWarnings.length > 0) {
+                             warnings.push(...result.validationWarnings);
+                        }
+                        if (result.warning) warnings.push(result.warning); // Add parsing/logic warnings
+                        if (result.segmentData) segmentsData.push(result.segmentData); 
                         
                         // Update state for next loop
                         if (result.lastCourse) lastSegmentCourseString = result.lastCourse;
-                        lastSegmentWasCurve = (segmentType.toLowerCase() === 'curve'); // NEW
+                        lastSegmentWasCurve = (segmentType.toLowerCase() === 'curve'); 
                         if(result.endCoordinates) {
-                            currentCoordinates = result.endCoordinates; // NEW: Update position
-                            coordinatesForPlotting.push(currentCoordinates); // NEW: Add to global plot array
+                            currentCoordinates = result.endCoordinates; // Update position
+                            coordinatesForPlotting.push(currentCoordinates); 
                         }
                     }
                     segmentCounter = parseInt(segmentHeaderMatch[1]); 
@@ -550,7 +583,7 @@
                             lastSegmentWasCurve
                         );
 
-                        // *** NEW LOGIC: Modify previous line if this is a curve ***
+                        // Modify previous line if this is a curve
                         if (segmentType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) {
                             let lastLine = formattedLines.pop();
                             if (lastLine.endsWith('feet;')) {
@@ -562,9 +595,11 @@
                             }
                             formattedLines.push(lastLine);
                         }
-                        // *** END NEW LOGIC ***
 
                         if (result.text) formattedLines.push(result.text);
+                        if(result.validationWarnings && result.validationWarnings.length > 0) {
+                             warnings.push(...result.validationWarnings);
+                        }
                         if (result.warning) warnings.push(result.warning);
                         if (result.segmentData) segmentsData.push(result.segmentData);
                         if (result.lastCourse) lastSegmentCourseString = result.lastCourse;
@@ -597,7 +632,7 @@
                      lastSegmentWasCurve
                  );
                 
-                // *** NEW LOGIC: Modify previous line if this is a curve ***
+                // Modify previous line if this is a curve
                 if (segmentType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) {
                     let lastLine = formattedLines.pop();
                     if (lastLine.endsWith('feet;')) {
@@ -609,9 +644,11 @@
                     }
                     formattedLines.push(lastLine);
                 }
-                // *** END NEW LOGIC ***
 
                 if (result.text) formattedLines.push(result.text);
+                if(result.validationWarnings && result.validationWarnings.length > 0) {
+                     warnings.push(...result.validationWarnings);
+                }
                 if (result.warning) warnings.push(result.warning);
                 if (result.segmentData) segmentsData.push(result.segmentData);
                 if(result.endCoordinates) {
@@ -649,15 +686,74 @@
             return {formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue}; 
         }
 
+        // *** NEW ***
+        function validateCurveData(curve, segmentContext) {
+            let validationWarnings = [];
+            if (curve.radius === undefined || curve.deltaDecimal === undefined) {
+                return validationWarnings; // Not enough data to validate
+            }
+
+            const deltaRad = curve.deltaDecimal * D2R;
+
+            // 1. Check Length
+            if (curve.length !== undefined) {
+                const calcLength = curve.radius * deltaRad;
+                if (Math.abs(curve.length - calcLength) > GEOMETRY_TOLERANCE) {
+                    validationWarnings.push(`Segment ${segmentContext}: File 'Length' (${curve.length.toFixed(3)}) does not match 'Length' calculated from R/D (${calcLength.toFixed(3)}).`);
+                }
+            }
+            
+            // 2. Check Chord Length
+            if (curve.chordLength !== undefined) {
+                const calcChord = 2 * curve.radius * Math.sin(deltaRad / 2);
+                if (Math.abs(curve.chordLength - calcChord) > GEOMETRY_TOLERANCE) {
+                    validationWarnings.push(`Segment ${segmentContext}: File 'Chord Length' (${curve.chordLength.toFixed(3)}) does not match 'Chord' calculated from R/D (${calcChord.toFixed(3)}).`);
+                }
+            }
+
+            // 3. Check Tangent Length
+            if (curve.tangent !== undefined) {
+                const calcTangent = curve.radius * Math.tan(deltaRad / 2);
+                 if (Math.abs(curve.tangent - calcTangent) > GEOMETRY_TOLERANCE) {
+                    validationWarnings.push(`Segment ${segmentContext}: File 'Tangent' (${curve.tangent.toFixed(3)}) does not match 'Tangent' calculated from R/D (${calcTangent.toFixed(3)}).`);
+                }
+            }
+
+            return validationWarnings;
+        }
+
+        // Normalize angle difference to be between -180 and 180
+        function normalizeAngleDifference(diff) {
+            while (diff <= -180) diff += 360;
+            while (diff > 180) diff -= 360;
+            return diff;
+        }
+
+        // *** NEW Function ***
+        function parseFileCoordinates(segmentData) {
+             for (const line of segmentData) {
+                 const coordMatch = line.match(/North:\s*([\d\.]+)'?\s*East:\s*([\d\.]+)'?/i);
+                 if (coordMatch) {
+                     const north = parseFloat(coordMatch[1]);
+                     const east = parseFloat(coordMatch[2]);
+                     if (!isNaN(north) && !isNaN(east)) {
+                        return { north: north, east: east };
+                     }
+                 }
+             }
+             return null; // Not found
+        }
+
         function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, currentSegmentNumber, isFirstSegment, startCoordinates, lastSegmentWasCurve) {
             let outputText = "";
             let warning = null;
-            let lastCourseForNextSegment = null; // For tangency checks
-            let endCoordinates = null; // NEW
-            let segmentDataObject = { segment: currentSegmentNumber, type: type }; // NEW
-            let tangencyStatus = null; // *** NEW ***
+            let validationWarnings = []; // *** NEW ***
+            let lastCourseForNextSegment = null; 
+            let endCoordinates = null; 
+            let segmentDataObject = { segment: currentSegmentNumber, type: type }; 
+            let tangencyStatus = null; 
             const segmentContext = `(Segment #${currentSegmentNumber})`;
-            const [startX, startY] = startCoordinates;
+            const [startX, startY] = startCoordinates; // These are calculated relative coords
 
             if (type.toLowerCase() === 'line') {
                 const courseLengthLine = segmentData.find(l => l.toLowerCase().startsWith('course:'));
@@ -667,29 +763,38 @@
 
                     if (courseMatch && lengthMatch) {
                         const bearing = {
-                            dir1: courseMatch[1].toUpperCase(),
-                            deg: parseInt(courseMatch[2]),
-                            min: parseInt(courseMatch[3]),
-                            sec: parseFloat(courseMatch[4]),
-                            dir2: courseMatch[5].toUpperCase()
+                            dir1: courseMatch[1].toUpperCase(), deg: parseInt(courseMatch[2]), min: parseInt(courseMatch[3]), sec: parseFloat(courseMatch[4]), dir2: courseMatch[5].toUpperCase()
                         };
                         const length = parseFloat(lengthMatch[1]);
                         const roundedSeconds = Math.round(bearing.sec);
 
-                        // Format for text output - Semicolon will be replaced later if needed
                         outputText = `thence ${expandDirection(bearing.dir1)} ${bearing.deg}°${String(bearing.min).padStart(2, '0')}'${String(roundedSeconds).padStart(2, '0')}" ${expandDirection(bearing.dir2)} ${length.toFixed(2)} feet;`;
                         
-                        // Store for next segment's tangency check
                         lastCourseForNextSegment = `${bearing.dir1} ${bearing.deg}°${bearing.min}'${bearing.sec}" ${bearing.dir2}`;
-                        
-                        // NEW: Store for CSV
                         segmentDataObject.course = lastCourseForNextSegment;
                         segmentDataObject.length = length;
 
-                        // NEW: Calculate Coordinates
                         const azimuth = bearingToAzimuth(bearing);
                         if (azimuth !== null) {
                             endCoordinates = calculateEndpoint(startX, startY, azimuth, length);
+
+                            // *** NEW: Validate Line Endpoint Coordinates ***
+                            const fileEndpointCoords = parseFileCoordinates(segmentData);
+                            if (filePobCoords && fileEndpointCoords && endCoordinates) {
+                                const fileRelativeX = fileEndpointCoords.east - filePobCoords.east;
+                                const fileRelativeY = fileEndpointCoords.north - filePobCoords.north;
+                                const calcX = endCoordinates[0];
+                                const calcY = endCoordinates[1];
+
+                                if (Math.abs(calcX - fileRelativeX) > GEOMETRY_TOLERANCE || Math.abs(calcY - fileRelativeY) > GEOMETRY_TOLERANCE) {
+                                    validationWarnings.push(`Segment ${segmentContext}: Calculated endpoint [${calcX.toFixed(3)}, ${calcY.toFixed(3)}] differs from file endpoint [${fileRelativeX.toFixed(3)}, ${fileRelativeY.toFixed(3)}] relative to POB.`);
+                                }
+                            } else if (filePobCoords && !fileEndpointCoords) {
+                                // Only warn if POB was found but endpoint wasn't
+                                validationWarnings.push(`Segment ${segmentContext}: Could not parse North/East coordinates from file for validation.`);
+                            }
+                            // *** END NEW ***
+
                         } else {
                             warning = `Could not calculate azimuth for line ${segmentContext}. Coordinates may be incorrect.`;
                         }
@@ -701,12 +806,10 @@
                     warning = `No course/length data found for line segment ${segmentContext}. Data: ${segmentData.join('; ')}.`;
                 }
             } else if (type.toLowerCase() === 'curve') {
-                let curve = { 
-                    courseInStr: null, 
-                    courseInBearing: null,
-                    courseOutStr: null, // NEW
-                    courseOutBearing: null, // NEW
-                    tangentInAzimuth: null, // NEW
+                 let curve = { 
+                    courseInStr: null, courseInBearing: null, courseInAzimuth: null, 
+                    courseOutStr: null, courseOutBearing: null, courseOutAzimuth: null, 
+                    tangentInAzimuth: null, 
                 };
                 segmentDataObject.rl = "R/L"; // Default
 
@@ -717,34 +820,33 @@
                         curve.radius = parseFloat(match[2]);
                     } else if ((match = line.match(/^Delta:\s*(\d{1,3})\s*[°\uFFFD]?\s*(\d{1,2})\s*['\u2019\u2018]?\s*([\d\.]+)\s*["\u201D\u201C]?/i))) { 
                         curve.deltaDecimal = parseDMS(match[0].replace(/^Delta:\s*/i, ''));
-                        curve.deltaStr = match[0].replace(/^Delta:\s*/i, '').trim(); // For CSV
+                        curve.deltaStr = match[0].replace(/^Delta:\s*/i, '').trim(); 
                         if (curve.deltaDecimal === null && warning === null) { 
                             warning = `Could not parse DMS Delta: "${match[0]}" ${segmentContext}.`;
                         }
                     } else if (!curve.deltaDecimal && (match = line.match(/Delta Angle:\s*([\d\.]+)\s*\(d\)/i))) { 
                         curve.deltaDecimal = parseFloat(match[1]);
-                        curve.deltaStr = `${curve.deltaDecimal}°`; // For CSV
+                        curve.deltaStr = `${curve.deltaDecimal}°`; 
                     } else if ((match = line.match(/Chord:\s*([\d\.]+)'?\s*Course:\s*([NSEW])\s*(\d{1,3})\s*[°\uFFFD]?\s*(\d{1,2})\s*['\u2019\u2018]?\s*([\d\.]+)\s*["\u201D\u201C]?\s*([NSEW])/i))) { 
                         curve.chordLength = parseFloat(match[1]);
                         curve.chordBearing = {
-                            dir1: match[2].toUpperCase(),
-                            deg: parseInt(match[3]),
-                            min: parseInt(match[4]),
-                            sec: parseFloat(match[5]),
-                            dir2: match[6].toUpperCase()
+                            dir1: match[2].toUpperCase(), deg: parseInt(match[3]), min: parseInt(match[4]), sec: parseFloat(match[5]), dir2: match[6].toUpperCase()
                         };
                         curve.chordCourseStr = `${match[2]} ${match[3]}°${match[4]}'${match[5]}" ${match[6]}`;
                     } else if ((match = line.match(/Course In:\s*([NSEW\d\s°'"\uFFFD\u2019\u2018\u201D\u201C\.]+)/i))) { 
                         curve.courseInStr = match[1].trim();
                         curve.courseInBearing = parseBearing(curve.courseInStr);
+                        curve.courseInAzimuth = bearingToAzimuth(curve.courseInBearing); 
                     } else if ((match = line.match(/Course Out:\s*([NSEW\d\s°'"\uFFFD\u2019\u2018\u201D\u201C\.]+)/i))) { 
-                        // NEW: Capture Course Out for next segment tangency
                         curve.courseOutStr = match[1].trim();
                         curve.courseOutBearing = parseBearing(curve.courseOutStr);
+                        curve.courseOutAzimuth = bearingToAzimuth(curve.courseOutBearing); 
+                    } else if ((match = line.match(/Tangent:\s*([\d\.]+)/i))) { 
+                        curve.tangent = parseFloat(match[1]);
                     }
                 });
 
-                // NEW: Store for CSV
+                // Store basic data for CSV
                 segmentDataObject.length = curve.length;
                 segmentDataObject.radius = curve.radius;
                 segmentDataObject.delta = curve.deltaStr;
@@ -754,8 +856,9 @@
                 if (curve.length !== undefined && curve.radius !== undefined && curve.deltaDecimal !== undefined && 
                     curve.chordLength !== undefined && curve.chordBearing !== undefined) {
                     
-                    // *** NEW: Calculate endpoint using Chord Bearing and Length first ***
-                    // This is the most reliable way and works for tangent & non-tangent.
+                    validationWarnings = validateCurveData(curve, segmentContext); // Perform geometry check
+
+                    // Calculate endpoint using Chord Bearing and Length
                     const chordAzimuth = bearingToAzimuth(curve.chordBearing);
                     if (chordAzimuth !== null) {
                         endCoordinates = calculateEndpoint(startX, startY, chordAzimuth, curve.chordLength);
@@ -763,117 +866,117 @@
                         if (warning === null) warning = "";
                         warning += (warning ? " " : "") + `Could not calculate curve endpoint ${segmentContext}. Missing or invalid Chord data. Coordinates will be incorrect.`;
                     }
-                    // *** END NEW LOGIC ***
                     
                     const dmsDelta = decimalToDMS(curve.deltaDecimal);
-                    let rl_display = "R/L"; // (R)ight or (L)eft
-                    let rl_calc = null; // 'R' or 'L'
+                    let rl_display = "R/L"; 
+                    let rl_calc = null; 
                     let nonTangentLabelText = ""; 
                     let rlVerifyLabelText = ""; 
-
-                    const TANGENCY_TOLERANCE_DEGREES = (5 / 3600); // 5 seconds of tolerance
+                    let rlMethod1Result = null; // Result from deflection
+                    let rlMethod2Result = null; // Result from Tangent vs Radial
+                    let rlMethod3Result = null; // Result from Radial In vs Radial Out
 
                     // --- Tangency Check ---
-                    tangencyStatus = 'tangent'; // *** NEW: Assume tangent unless proven otherwise ***
+                    tangencyStatus = 'tangent'; // Assume tangent unless proven otherwise
                     let tangentInBearing = null;
                     if (prevLineCourseStr) {
                         tangentInBearing = parseBearing(prevLineCourseStr);
                         curve.tangentInAzimuth = bearingToAzimuth(tangentInBearing);
                     }
 
-                    if (curve.tangentInAzimuth !== null && curve.courseInBearing) {
-                        const courseInAzimuth = bearingToAzimuth(curve.courseInBearing);
-                        if (courseInAzimuth !== null) {
-                            const diff = Math.abs(curve.tangentInAzimuth - courseInAzimuth);
-                            // Check for collinear (tangent) or 180-degree opposite (also tangent)
-                            const isEffectivelyCollinear = (Math.abs(diff) <= TANGENCY_TOLERANCE_DEGREES) || 
-                                                         (Math.abs(diff - 180) <= TANGENCY_TOLERANCE_DEGREES) ||
-                                                         (Math.abs(diff - 360) <= TANGENCY_TOLERANCE_DEGREES);
-                            if (!isEffectivelyCollinear) {
-                                nonTangentLabelText = "(Non-Tangent)";
-                                tangencyStatus = 'non-tangent'; // *** NEW ***
-                            }
-                        } else {
-                             if (warning === null) warning = ""; 
-                             warning += (warning ? " " : "") + `Could not check tangency: Could not parse Course In azimuth ${segmentContext}. CourseIn: ${curve.courseInStr}.`;
-                             tangencyStatus = 'unknown'; // *** NEW ***
+                    if (curve.tangentInAzimuth !== null && curve.courseInAzimuth !== null) {
+                        const diff = Math.abs(curve.tangentInAzimuth - curve.courseInAzimuth);
+                        const isEffectivelyCollinear = (Math.abs(diff) <= TANGENCY_TOLERANCE_DEGREES) || 
+                                                     (Math.abs(diff - 180) <= TANGENCY_TOLERANCE_DEGREES) ||
+                                                     (Math.abs(diff - 360) <= TANGENCY_TOLERANCE_DEGREES);
+                        if (!isEffectivelyCollinear) {
+                            nonTangentLabelText = "(Non-Tangent)";
+                            tangencyStatus = 'non-tangent'; 
                         }
-                    } else if (prevLineCourseStr && !curve.courseInStr) {
-                         // This is a common case, not necessarily a warning.
-                         // We will *infer* tangency from R/L detection.
-                         tangencyStatus = 'inferred'; // *** NEW ***
+                    } else if (prevLineCourseStr && curve.courseInAzimuth === null) {
+                         tangencyStatus = 'inferred'; 
                     } else if (lastSegmentWasCurve) {
-                        // Previous segment was a curve, assume compound curve (tangent)
-                        tangencyStatus = 'tangent';
-                    } else {
-                        // No previous line, must be non-tangent or first segment
+                        tangencyStatus = 'tangent'; // Assume compound
+                    } else if (!isFirstSegment) { // Only flag non-tangent if NOT the first segment
                         tangencyStatus = 'non-tangent';
+                    } else {
+                         tangencyStatus = 'unknown'; // First segment, can't determine tangency yet
                     }
 
 
-                    // --- R/L Detection ---
+                    // --- R/L Detection Layered Logic ---
                     if (curveRLOverride !== "auto" && isFirstSegment) { 
                         rl_calc = curveRLOverride;
-                        rl_display = rl_calc === "L" ? "Left" : "Right";
-                        if (warning === null) warning = "";
-                        warning += (warning ? " " : "") + `R/L for first curve manually set to ${rl_display} ${segmentContext}.`;
-                    } else if (curve.tangentInAzimuth !== null) {
-                        // const chordAzimuth = bearingToAzimuth(curve.chordBearing); // Already calculated above
-                        if (chordAzimuth !== null) {
-                            let deflectionToChord = chordAzimuth - curve.tangentInAzimuth;
-                            // Normalize deflection
-                            while (deflectionToChord <= -180) deflectionToChord += 360;
-                            while (deflectionToChord > 180) deflectionToChord -= 360;
-                            
+                    } else {
+                        // 1. Deflection Method (Primary)
+                        if (curve.tangentInAzimuth !== null && chordAzimuth !== null) {
+                            let deflectionToChord = normalizeAngleDifference(chordAzimuth - curve.tangentInAzimuth);
                             const deltaHalf = curve.deltaDecimal / 2;
-                            
-                            // Check if deflection is in the ballpark of delta/2
                             if (Math.abs(Math.abs(deflectionToChord) - deltaHalf) < 2.5) { 
-                                rl_calc = deflectionToChord > 0 ? "R" : "L";
-                                rl_display = rl_calc === "R" ? "Right" : "Left";
-                                // If tangency was 'inferred', and this test passes, we can be more confident
-                                if (tangencyStatus === 'inferred') {
-                                    tangencyStatus = 'tangent';
-                                }
+                                rlMethod1Result = deflectionToChord > 0 ? "R" : "L";
+                                if (tangencyStatus === 'inferred') tangencyStatus = 'tangent'; 
                             } else {
-                                // This is a good sign of non-tangency
                                 if (tangencyStatus !== 'non-tangent') {
-                                    nonTangentLabelText = "(Non-Tangent)";
-                                    tangencyStatus = 'non-tangent'; // *** NEW ***
+                                    nonTangentLabelText = "(Non-Tangent)"; // Deflection mismatch implies non-tangency
+                                    tangencyStatus = 'non-tangent'; 
                                 }
-                                rl_calc = null; // Can't determine
-                                rl_display = "R/L"; 
-                                rlVerifyLabelText = "(R/L Verify)";
-                                if (warning === null) warning = "";
-                                warning += (warning ? " " : "") + `Curve R/L detection uncertain ${segmentContext}. Deflection to chord (${deflectionToChord.toFixed(2)}°) vs. Delta/2 (${deltaHalf.toFixed(2)}°) differs. Prev: ${prevLineCourseStr}, Chord: ${curve.chordCourseStr}. Please verify.`;
+                                rlMethod1Result = null; // Uncertain
                             }
-                        } else {
-                             rl_calc = null;
-                             rl_display = "R/L";
-                             rlVerifyLabelText = "(R/L Calc Error)";
-                             if (warning === null) warning = "";
-                             warning += (warning ? " " : "") + `Could not determine R/L for curve ${segmentContext}: Chord Azimuth calculation failed. Chord: ${curve.chordCourseStr}.`;
                         }
-                    } else if (curveRLOverride === "auto" && !isFirstSegment) { 
-                         // We have no previous line course to check against
-                         rl_calc = null;
-                         rl_display = "R/L";
-                         rlVerifyLabelText = "(R/L Needs Prev. Line)";
-                         if (warning === null) warning = "";
-                         warning += (warning ? " " : "") + `Curve R/L ${segmentContext} cannot be auto-determined: No previous line segment course.`;
-                    } else if (isFirstSegment) {
-                         rl_calc = null;
-                         rl_display = "R/L";
-                         rlVerifyLabelText = "(R/L Needs Override)";
-                         if (warning === null) warning = "";
-                         warning += (warning ? " " : "") + `First segment is a curve. R/L ${segmentContext} cannot be auto-determined without an override.`;
-                    }
+
+                        // 2. Tangent vs Radial In Method (Secondary/Cross-check)
+                        if (curve.tangentInAzimuth !== null && curve.courseInAzimuth !== null) {
+                            let tanRadDiff = normalizeAngleDifference(curve.courseInAzimuth - curve.tangentInAzimuth);
+                            if (Math.abs(tanRadDiff - 90) < NINETY_DEG_TOLERANCE) rlMethod2Result = 'L';
+                            else if (Math.abs(tanRadDiff + 90) < NINETY_DEG_TOLERANCE || Math.abs(tanRadDiff - 270) < NINETY_DEG_TOLERANCE) rlMethod2Result = 'R';
+                            else { // Angle isn't close to +/- 90, likely non-tangent
+                                if(tangencyStatus === 'tangent' || tangencyStatus === 'inferred') {
+                                     nonTangentLabelText = "(Non-Tangent)";
+                                     tangencyStatus = 'non-tangent';
+                                }
+                                rlMethod2Result = null; 
+                            }
+                        }
+                        
+                        // 3. Radial In vs Radial Out Method (Tertiary/Fallback)
+                        if (curve.courseInAzimuth !== null && curve.courseOutAzimuth !== null) {
+                             let radInOutDiff = normalizeAngleDifference(curve.courseOutAzimuth - curve.courseInAzimuth);
+                             if (Math.abs(radInOutDiff - curve.deltaDecimal) < DELTA_TOLERANCE) rlMethod3Result = 'R';
+                             else if (Math.abs(radInOutDiff + curve.deltaDecimal) < DELTA_TOLERANCE) rlMethod3Result = 'L';
+                             else rlMethod3Result = null; 
+                        }
+
+                        // 4. Consolidate R/L Results
+                        let conflicting = false;
+                        if (rlMethod1Result && rlMethod2Result && rlMethod1Result !== rlMethod2Result) conflicting = true;
+                        if (rlMethod1Result && rlMethod3Result && rlMethod1Result !== rlMethod3Result) conflicting = true;
+                        if (rlMethod2Result && rlMethod3Result && rlMethod2Result !== rlMethod3Result) conflicting = true;
+
+                        if (conflicting) {
+                            rl_calc = null; // Conflicting results, force verify
+                            if (warning === null) warning = "";
+                            warning += (warning ? " " : "") + `Conflicting R/L results ${segmentContext}. M1:${rlMethod1Result}, M2:${rlMethod2Result}, M3:${rlMethod3Result}. Please verify.`;
+                        } else {
+                            // Prioritize results: Deflection > Tangent/Radial > Radial In/Out
+                            rl_calc = rlMethod1Result || rlMethod2Result || rlMethod3Result;
+                        }
+
+                        // Final R/L assignment and warnings
+                        if (rl_calc) {
+                            rl_display = rl_calc === 'R' ? 'Right' : 'Left';
+                        } else {
+                            rl_calc = null;
+                            rl_display = "R/L";
+                            rlVerifyLabelText = "(R/L Verify)";
+                            if (warning === null) warning = "";
+                             warning += (warning ? " " : "") + `Curve R/L ${segmentContext} could not be determined automatically.`;
+                        }
+                    } // End if not override
                     
                     segmentDataObject.rl = rl_calc || "R/L";
 
                     // --- Text Output ---
                     let prefixOutput = "";
-                    // Only show (Non-Tangent) if we are sure
                     if (tangencyStatus === 'non-tangent' && nonTangentLabelText) {
                          prefixOutput += nonTangentLabelText + " ";
                     }
@@ -882,25 +985,18 @@
                     const roundedChordSeconds = Math.round(curve.chordBearing.sec);
                     outputText = `${prefixOutput.trim()} thence ${curve.length.toFixed(2)} feet along the arc of a ${curve.radius.toFixed(2)} foot radius curve to the ${rl_display}, through a central angle of ${formatDMS(dmsDelta)}, with a long chord of ${expandDirection(curve.chordBearing.dir1)} ${curve.chordBearing.deg}°${String(curve.chordBearing.min).padStart(2,'0')}'${String(roundedChordSeconds).padStart(2,'0')}" ${expandDirection(curve.chordBearing.dir2)} ${curve.chordLength.toFixed(2)} feet;`;
                     
-                    // --- Coordinate Calculation & Next Tangent ---
-                    // We already calculated endCoordinates using the chord.
-                    // Now we just need to determine the *next* segment's tangency.
-
-                    if (rl_calc && curve.tangentInAzimuth !== null) {
-                        // This was a tangent curve, so we can calculate the tangent-out.
+                    // --- Next Tangent ---
+                    if (tangencyStatus === 'tangent' && rl_calc && curve.tangentInAzimuth !== null) {
                         const tangentOutAzimuth = (curve.tangentInAzimuth + (rl_calc === 'R' ? curve.deltaDecimal : -curve.deltaDecimal) + 360) % 360;
                         const tangentOutBearing = azimuthToBearing(tangentOutAzimuth);
                         if (tangentOutBearing) {
                             lastCourseForNextSegment = `${tangentOutBearing.dir1} ${tangentOutBearing.deg}°${tangentOutBearing.min}'${tangentOutBearing.sec.toFixed(0)}" ${tangentOutBearing.dir2}`;
                         } else {
-                            lastCourseForNextSegment = null; // Failed to convert
+                            lastCourseForNextSegment = null; 
                         }
                     } else if (curve.courseOutBearing) {
-                        // This was non-tangent, but the file *gave* us a Course Out. Use it.
                         lastCourseForNextSegment = curve.courseOutStr;
                     } else {
-                        // This was non-tangent and no Course Out was given.
-                        // The next segment *cannot* be tangent.
                         lastCourseForNextSegment = null; 
                     }
 
@@ -918,14 +1014,15 @@
             return { 
                 text: outputText, 
                 warning: warning ? warning.trim() : null, 
+                validationWarnings: validationWarnings, // *** NEW ***
                 lastCourse: lastCourseForNextSegment,
-                endCoordinates: endCoordinates, // NEW
-                segmentData: segmentDataObject, // NEW
-                tangencyStatus: tangencyStatus // *** NEW ***
+                endCoordinates: endCoordinates, 
+                segmentData: segmentDataObject, 
+                tangencyStatus: tangencyStatus 
             };
         }
 
-        // --- NEW: Survey Calculation & Utility Functions ---
+        // --- Survey Calculation & Utility Functions ---
 
         function expandDirection(shorthand) {
             const map = { 'N': 'North', 'S': 'South', 'E': 'East', 'W': 'West' };
@@ -950,25 +1047,16 @@
 
         function parseBearing(bearingString) {
             if (!bearingString) return null;
-            // Updated regex to be more robust
             const match = bearingString.match(/([NSEW])\s*(\d{1,3})\s*[°\uFFFD]?\s*(\d{1,2})\s*['\u2019\u2018]?\s*([\d\.]+)\s*["\u201D\u201C]?\s*([NSEW])/i);
             if (!match) {
                 const cardinalMatch = bearingString.match(/^\s*([NSEW])\s*$/i);
                 if (cardinalMatch) {
-                    return {
-                        dir1: cardinalMatch[1].toUpperCase(),
-                        deg: 0, min: 0, sec: 0, 
-                        dir2: '' 
-                    };
+                    return { dir1: cardinalMatch[1].toUpperCase(), deg: 0, min: 0, sec: 0, dir2: '' };
                 }
                 return null;
             }
             return {
-                dir1: match[1].toUpperCase(),
-                deg: parseInt(match[2]),
-                min: parseInt(match[3]),
-                sec: parseFloat(match[4]),
-                dir2: match[5].toUpperCase(),
+                dir1: match[1].toUpperCase(), deg: parseInt(match[2]), min: parseInt(match[3]), sec: parseFloat(match[4]), dir2: match[5].toUpperCase(),
             };
         }
         
@@ -979,41 +1067,24 @@
             if (bearing.dir1 === 'S' && bearing.dir2 === 'E') return 180 - angle;
             if (bearing.dir1 === 'S' && bearing.dir2 === 'W') return 180 + angle;
             if (bearing.dir1 === 'N' && bearing.dir2 === 'W') return 360 - angle;
-            if (bearing.dir1 === 'N' && bearing.dir2 === '') return 0;
-            if (bearing.dir1 === 'E' && bearing.dir2 === '') return 90;
-            if (bearing.dir1 === 'S' && bearing.dir2 === '') return 180;
-            if (bearing.dir1 === 'W' && bearing.dir2 === '') return 270;
+            if (bearing.dir1 === 'N' && !bearing.dir2) return 0;
+            if (bearing.dir1 === 'E' && !bearing.dir2) return 90;
+            if (bearing.dir1 === 'S' && !bearing.dir2) return 180;
+            if (bearing.dir1 === 'W' && !bearing.dir2) return 270;
             return null;
         }
 
-        // NEW: Convert Azimuth back to Bearing
+        // Convert Azimuth back to Bearing
         function azimuthToBearing(azimuth) {
-            if (azimuth < 0 || azimuth > 360) {
-                azimuth = (azimuth % 360 + 360) % 360; // Normalize
-            }
+            if (azimuth === null || isNaN(azimuth)) return null;
+             azimuth = (azimuth % 360 + 360) % 360; // Normalize
 
             let dms = decimalToDMS(azimuth);
-            let sec = Math.round(dms.s); // Round for bearing string
-            if (sec === 60) {
-                sec = 0;
-                dms.m += 1;
-                if (dms.m === 60) {
-                    dms.m = 0;
-                    dms.d += 1;
-                }
-            }
             
-            // Handle precision in rounding for sec
-            let s_rounded_for_bearing = Math.round(dms.s_precise);
-            if (s_rounded_for_bearing === 60) {
-                s_rounded_for_bearing = 0;
-                dms.m += 1;
-                if (dms.m === 60) {
-                    dms.m = 0;
-                    dms.d += 1;
-                }
-            }
-
+            if (Math.abs(azimuth - 0) < 1e-9 || Math.abs(azimuth - 360) < 1e-9) return { dir1: 'N', deg: 0, min: 0, sec: 0, dir2: '', s_precise: 0 };
+            if (Math.abs(azimuth - 90) < 1e-9) return { dir1: 'E', deg: 0, min: 0, sec: 0, dir2: '', s_precise: 0 };
+            if (Math.abs(azimuth - 180) < 1e-9) return { dir1: 'S', deg: 0, min: 0, sec: 0, dir2: '', s_precise: 0 };
+            if (Math.abs(azimuth - 270) < 1e-9) return { dir1: 'W', deg: 0, min: 0, sec: 0, dir2: '', s_precise: 0 };
 
             if (azimuth > 0 && azimuth < 90) {
                 dms = decimalToDMS(azimuth);
@@ -1027,34 +1098,30 @@
             } else if (azimuth > 270 && azimuth < 360) {
                 dms = decimalToDMS(360 - azimuth);
                 return { dir1: 'N', deg: dms.d, min: dms.m, sec: dms.s_precise, dir2: 'W' };
-            } else { // Cardinal directions
-                if (azimuth === 0 || azimuth === 360) return { dir1: 'N', deg: 0, min: 0, sec: 0, dir2: '' };
-                if (azimuth === 90) return { dir1: 'E', deg: 0, min: 0, sec: 0, dir2: '' };
-                if (azimuth === 180) return { dir1: 'S', deg: 0, min: 0, sec: 0, dir2: '' };
-                if (azimuth === 270) return { dir1: 'W', deg: 0, min: 0, sec: 0, dir2: '' };
-            }
-            return null;
+            } 
+            return null; // Should not happen with normalization
         }
 
         function decimalToDMS(decimalDegrees) {
-            const d = Math.floor(decimalDegrees);
-            const mDecimal = (decimalDegrees - d) * 60;
+            const absDegrees = Math.abs(decimalDegrees);
+            const d = Math.floor(absDegrees);
+            const mDecimal = (absDegrees - d) * 60;
             const m = Math.floor(mDecimal);
             const sDecimal = (mDecimal - m) * 60;
-            let s = sDecimal; // Keep precision for calculations
+            const s_precise = sDecimal; // Keep full precision
             
-            // Rounding logic for display
+            // Rounding logic for display seconds
             let s_rounded = Math.round(sDecimal * 100) / 100;
              if (s_rounded >= 59.995) { 
                 s_rounded = 0;
                 let newM = m + 1;
                 if (newM === 60) {
                     newM = 0;
-                    return { d: d + 1, m: newM, s: s_rounded, s_precise: s };
+                    return { d: d + 1, m: newM, s: s_rounded, s_precise: s_precise };
                 }
-                return { d, m: newM, s: s_rounded, s_precise: s };
+                return { d, m: newM, s: s_rounded, s_precise: s_precise };
             }
-            return { d, m, s: s_rounded, s_precise: s };
+            return { d, m, s: s_rounded, s_precise: s_precise };
         }
 
         function formatDMS(dms) {
@@ -1063,7 +1130,7 @@
             return `${dms.d}°${String(dms.m).padStart(2, '0')}'${formattedSeconds}"`;
         }
 
-        // NEW: Calculate X, Y for a line
+        // Calculate X, Y for a line
         function calculateEndpoint(startX, startY, azimuthDegrees, length) {
             const azimuthRadians = azimuthDegrees * D2R;
             const deltaY = length * Math.cos(azimuthRadians); // North
@@ -1071,25 +1138,7 @@
             return [startX + deltaX, startY + deltaY];
         }
 
-        // NEW: Calculate X, Y for a curve (No longer used for endpoint, but could be useful)
-        function calculateCurveEndpoint(startX, startY, tangentInAzimuth, radius, length, deltaDegrees, rl) {
-            // 1. Calculate radial bearing to center
-            const radialInAzimuth = (tangentInAzimuth + (rl === 'R' ? 90 : -90) + 360) % 360;
-            
-            // 2. Calculate center point
-            const [centerX, centerY] = calculateEndpoint(startX, startY, radialInAzimuth, radius);
-
-            // 3. Calculate radial bearing from center to end point
-            const deltaSign = (rl === 'R' ? 1 : -1);
-            const radialOutAzimuth = (radialInAzimuth + 180 + (deltaSign * deltaDegrees) + 360) % 360;
-            
-            // 4. Calculate end point from center
-            const [endX, endY] = calculateEndpoint(centerX, centerY, radialOutAzimuth, radius);
-
-            return [endX, endY];
-        }
-
-        // NEW: Calculate Misclosure
+        // Calculate Misclosure
         function calculateMisclosure(coordinates) {
             if (coordinates.length < 2) return null;
             const startPoint = coordinates[0];
@@ -1107,7 +1156,7 @@
                 totalPerimeter += Math.sqrt(Math.pow(p2[0] - p1[0], 2) + Math.pow(p2[1] - p1[1], 2));
             }
             
-            if (misclosureDist === 0) {
+            if (misclosureDist < 1e-9 || totalPerimeter === 0) { // Check for near-zero or zero
                 return { misclosureDist: 0, ratio: Infinity, totalPerimeter: totalPerimeter };
             }
             
@@ -1115,7 +1164,7 @@
             return { misclosureDist, ratio, totalPerimeter };
         }
 
-        // NEW: Calculate Area
+        // Calculate Area
         function calculateShoelaceArea(coordinates) {
             let area = 0;
             let n = coordinates.length;
@@ -1125,7 +1174,7 @@
             let coords = [...coordinates];
             const start = coords[0];
             const end = coords[n-1];
-            if (start[0] !== end[0] || start[1] !== end[1]) {
+            if (Math.abs(start[0] - end[0]) > 1e-9 || Math.abs(start[1] - end[1]) > 1e-9) { // Use tolerance
                 coords.push(start);
                 n = coords.length;
             }
@@ -1137,7 +1186,7 @@
             return Math.abs(area / 2);
         }
 
-        // NEW: Display Calculation Results
+        // Display Calculation Results
         function calculateAndDisplayResults(coordinates, areaFromFile) {
             const resultsArea = document.getElementById('resultsArea');
             resultsArea.innerHTML = ''; // Clear old results
@@ -1168,7 +1217,7 @@
             // 3. Area Comparison
             if (areaFromFile !== null) {
                 const diff = calculatedArea - areaFromFile;
-                const diffPercent = (diff / areaFromFile) * 100;
+                const diffPercent = (areaFromFile !== 0) ? (diff / areaFromFile) * 100 : 0; // Avoid division by zero
 
                 const comparisonEl = document.createElement('p');
                 comparisonEl.innerHTML = `<strong>Area vs. File:</strong> ${diff.toFixed(2)} sq. ft. (${diffPercent.toFixed(4)}%) difference`;
@@ -1182,7 +1231,7 @@
             }
         }
 
-        // --- NEW: Visualization Functions ---
+        // --- Visualization Functions ---
 
         function clearCanvas(canvas) {
             const ctx = canvas.getContext('2d');
@@ -1220,9 +1269,12 @@
                 ctx.fill();
                 return;
             }
+            // Ensure non-zero dimensions for scaling
+            const effectiveDataWidth = dataWidth === 0 ? 1 : dataWidth;
+            const effectiveDataHeight = dataHeight === 0 ? 1 : dataHeight;
 
-            const scaleX = plotWidth / dataWidth;
-            const scaleY = plotHeight / dataHeight;
+            const scaleX = plotWidth / effectiveDataWidth;
+            const scaleY = plotHeight / effectiveDataHeight;
             const scale = Math.min(scaleX, scaleY);
 
             // 3. Create transform function
