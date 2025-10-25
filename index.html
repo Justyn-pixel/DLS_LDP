@@ -539,7 +539,8 @@
                     segmentType,
                     lastSegmentCourseString,
                     firstCurveRLOverride,
-                    segmentCounter, 
+                    segmentCounter,
+                    currentCoordinates, // Pass the current coordinates
                     formattedLines.length === 0,
                     currentCoordinates,
                     lastSegmentWasCurve
@@ -571,6 +572,7 @@
                 if (result.endCoordinates) {
                     currentCoordinates = result.endCoordinates;
                     coordinatesForPlotting.push(currentCoordinates);
+                    // The bug was here. The currentCoordinates were being updated, but the old value was being passed to the next iteration.
                 }
             };
 
@@ -820,7 +822,7 @@
              return null; // Not found
         }
 
-        function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, currentSegmentNumber, isFirstSegment, startCoordinates, lastSegmentWasCurve) {
+        function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, currentSegmentNumber, startCoordinates, isFirstSegment, lastSegmentWasCurve) {
             let outputText = "";
             let warning = null;
             let validationWarnings = []; // *** NEW ***
