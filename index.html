@@ -576,26 +576,24 @@
 
             for (const line of allLinesFromFile) {
                 const trimmedLine = line.trim();
-                const segmentHeaderMatch = trimmedLine.match(/^Segment\s+#(\d+)\s*:\s*(Line|Curve)/i);
-                const isNewSegment = segmentHeaderMatch || trimmedLine.match(/Area:\s*([\d.,]+)\s*Sq\.\s*Ft\.?/i);
+                if (trimmedLine === "") continue; // Skip empty lines
 
-                if (isNewSegment) {
+                const segmentHeaderMatch = trimmedLine.match(/^Segment\s+#(\d+)\s*:\s*(Line|Curve)/i);
+                const isAreaLine = trimmedLine.match(/Area:\s*([\d.,]+)\s*Sq\.\s*Ft\.?/i);
+                const isCoordLine = trimmedLine.match(/^North:\s*[\d\.]+'?\s*East:\s*[\d\.]+'?/i);
+
+                if (segmentHeaderMatch || isAreaLine) {
                     processAndStoreSegment(); // Process the segment we just finished collecting
 
-                    // Now, set up for the next segment (or stop if it was the Area line)
                     if (segmentHeaderMatch) {
                         segmentCounter = parseInt(segmentHeaderMatch[1]);
                         segmentType = segmentHeaderMatch[2];
                         currentSegmentData = [];
-                    } else { // It was the Area line, so we are done with segments
+                    } else { // It was the Area line
                         segmentType = null;
                         currentSegmentData = [];
                     }
-                    continue;
-                }
-
-
-                if (segmentType && trimmedLine !== "") {
+                } else if (segmentType) {
                     currentSegmentData.push(trimmedLine);
                 }
             }
