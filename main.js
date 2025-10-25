@@ -35,6 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const resultsContainer = document.getElementById('resultsContainer'); // NEW
     const resultsArea = document.getElementById('resultsArea'); // NEW
     const traversePlotCanvas = document.getElementById('traversePlot'); // NEW
+    const copyButton = document.getElementById('copyButton'); // NEW
     const manualControlsContainer = document.getElementById('manualControlsContainer'); // NEW
 
     // --- Drag & Drop / File Input Listeners ---
@@ -274,6 +275,23 @@ document.addEventListener('DOMContentLoaded', () => {
             statusMessage.textContent = 'KML file downloaded successfully!';
         } catch (error) {
             statusMessage.textContent = `Error downloading KML: ${error.message}`;
+        }
+    });
+
+    // NEW: Copy to Clipboard
+    copyButton.addEventListener('click', () => {
+        const textToCopy = previewArea.value;
+        if (textToCopy) {
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                // Success feedback
+                copyButton.textContent = 'Copied!';
+                setTimeout(() => {
+                    copyButton.textContent = 'Copy';
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy text: ', err);
+                statusMessage.textContent = 'Failed to copy text.';
+            });
         }
     });
 });
@@ -702,18 +720,20 @@ function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, c
 
                     // *** NEW: Validate Line Endpoint Coordinates ***
                     const fileEndpointCoords = parseFileCoordinates(segmentData);
-                    if (filePobCoords && fileEndpointCoords && endCoordinates) {
+                    if (filePobCoords && fileEndpointCoords) { // If we found coordinates in the file
+                        // And we were able to calculate our own...
+                        if (!endCoordinates) {
+                             validationWarnings.push(`Segment ${segmentContext}: Could not calculate an endpoint, so file coordinates could not be validated.`);
+                        } else {
                         const fileRelativeX = fileEndpointCoords.east - filePobCoords.east;
                         const fileRelativeY = fileEndpointCoords.north - filePobCoords.north;
                         const calcX = endCoordinates[0];
                         const calcY = endCoordinates[1];
 
-                        if (Math.abs(calcX - fileRelativeX) > GEOMETRY_TOLERANCE || Math.abs(calcY - fileRelativeY) > GEOMETRY_TOLERANCE) {
-                            validationWarnings.push(`Segment ${segmentContext}: Calculated endpoint [${calcX.toFixed(3)}, ${calcY.toFixed(3)}] differs from file endpoint [${fileRelativeX.toFixed(3)}, ${fileRelativeY.toFixed(3)}] relative to POB.`);
+                            if (Math.abs(calcX - fileRelativeX) > GEOMETRY_TOLERANCE || Math.abs(calcY - fileRelativeY) > GEOMETRY_TOLERANCE) {
+                                validationWarnings.push(`Segment ${segmentContext}: Calculated endpoint [${calcX.toFixed(3)}, ${calcY.toFixed(3)}] differs from file endpoint [${fileRelativeX.toFixed(3)}, ${fileRelativeY.toFixed(3)}] relative to POB.`);
+                            }
                         }
-                    } else if (filePobCoords && !fileEndpointCoords && segmentData.some(line => /End\s+North:/.test(line))) {
-                        // Only warn if it looks like coords should be there but couldn't be parsed
-                        validationWarnings.push(`Segment ${segmentContext}: Could not parse North/East coordinates from file for validation.`);
                     }
                     // *** END NEW ***
 
@@ -799,18 +819,20 @@ function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, c
 
             // *** NEW: Validate Curve Endpoint Coordinates (similar to lines) ***
             const fileEndpointCoords = parseFileCoordinates(segmentData);
-            if (filePobCoords && fileEndpointCoords && endCoordinates) {
-                const fileRelativeX = fileEndpointCoords.east - filePobCoords.east;
-                const fileRelativeY = fileEndpointCoords.north - filePobCoords.north;
-                const calcX = endCoordinates[0];
-                const calcY = endCoordinates[1];
+            if (filePobCoords && fileEndpointCoords) { // If we found coordinates in the file
+                // And we were able to calculate our own...
+                if (!endCoordinates) {
+                    validationWarnings.push(`Segment ${segmentContext}: Could not calculate a curve endpoint, so file coordinates could not be validated.`);
+                } else {
+                    const fileRelativeX = fileEndpointCoords.east - filePobCoords.east;
+                    const fileRelativeY = fileEndpointCoords.north - filePobCoords.north;
+                    const calcX = endCoordinates[0];
+                    const calcY = endCoordinates[1];
 
-                if (Math.abs(calcX - fileRelativeX) > GEOMETRY_TOLERANCE || Math.abs(calcY - fileRelativeY) > GEOMETRY_TOLERANCE) {
-                    validationWarnings.push(`Segment ${segmentContext}: Calculated curve endpoint [${calcX.toFixed(3)}, ${calcY.toFixed(3)}] differs from file endpoint [${fileRelativeX.toFixed(3)}, ${fileRelativeY.toFixed(3)}] relative to POB.`);
+                    if (Math.abs(calcX - fileRelativeX) > GEOMETRY_TOLERANCE || Math.abs(calcY - fileRelativeY) > GEOMETRY_TOLERANCE) {
+                        validationWarnings.push(`Segment ${segmentContext}: Calculated curve endpoint [${calcX.toFixed(3)}, ${calcY.toFixed(3)}] differs from file endpoint [${fileRelativeX.toFixed(3)}, ${fileRelativeY.toFixed(3)}] relative to POB.`);
+                    }
                 }
-            } else if (filePobCoords && !fileEndpointCoords && segmentData.some(line => /End North:/.test(line))) {
-                // Only warn if it looks like coords should be there
-                validationWarnings.push(`Segment ${segmentContext}: Could not parse North/East coordinates from curve data for validation.`);
             }
 
             const dmsDelta = decimalToDMS(curve.deltaDecimal);
