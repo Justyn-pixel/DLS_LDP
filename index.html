@@ -533,15 +533,14 @@
         // --- Core Parsing Logic ---
 
         // *** NEW Function ***
-        function parsePobCoordinates(rawText) {
+        function parsePobCoordinates(rawText) { // Un-minified for clarity
             const lines = rawText.split('\n');
             for (const line of lines) {
                 const trimmedLine = line.trim();
                 // Added optional single quote flexibility
                 const pobMatch = trimmedLine.match(/Point\s+of\s+Beginning\s*:\s*North:\s*([\d\.]+)'?\s*East:\s*([\d\.]+)'?/i);
                 if (pobMatch) {
-                    const north = parseFloat(pobMatch[1]);
-                    const east = parseFloat(pobMatch[2]);
+                    const north = parseFloat(pobMatch[1]); const east = parseFloat(pobMatch[2]);
                     if (!isNaN(north) && !isNaN(east)) return { north: north, east: east };
                 }
             }
@@ -550,193 +549,100 @@
 
         function parseLegalDescription(rawText, firstCurveRLOverride, userRlOverrides = {}) { // Accept overrides
             const allLinesFromFile = rawText.split('\n');
-            const formattedLines = [];
-            const warnings = [];
-            let segmentsData = []; // NEW
-            let currentSegmentData = [];
-            let segmentType = null; 
-            let lastSegmentCourseString = null; 
-            let segmentCounter = 0; 
-            let areaSummaryLine = null;
-            let parsedAreaValue = null;
-            let lastSegmentWasCurve = false;
-            let uncertainSegmentsOutput = {}; // Track uncertain segments for this run
-
-            // Start traverse at [0, 0]
+            const formattedLines = []; const warnings = []; let segmentsData = [];
+            let currentSegmentData = []; let segmentType = null; let lastSegmentCourseString = null;
+            let segmentCounter = 0; let areaSummaryLine = null; let parsedAreaValue = null;
+            let lastSegmentWasCurve = false; let uncertainSegmentsOutput = {}; // Track uncertain segments for this run
             let currentCoordinates = [0, 0]; coordinatesForPlotting = [[0, 0]]; // Reset global plot coords for this run
 
             for (const line of allLinesFromFile) {
                 const trimmedLine = line.trim();
                 const segmentHeaderMatch = trimmedLine.match(/^Segment\s+#(\d+)\s*:\s*(Line|Curve)/i);
-                const areaMatchTest = trimmedLine.match(/Area:\s*([\d.,]+)\s*Sq\.\s*Ft\.?/i); 
+                const areaMatchTest = trimmedLine.match(/Area:\s*([\d.,]+)\s*Sq\.\s*Ft\.?/i);
 
                 if (segmentHeaderMatch) {
                     if (segmentType && currentSegmentData.length > 0) {
                          const rlOverride = userRlOverrides[segmentCounter] || null;
-                        const result = processSegment(
-                            currentSegmentData, 
-                            segmentType, 
-                            lastSegmentCourseString, 
-                            firstCurveRLOverride, 
-                            segmentCounter, 
-                            formattedLines.length === 0,
-                            currentCoordinates, // Pass current *calculated* position
-                            lastSegmentWasCurve, 
-                            rlOverride
-                        ); 
-                        
-                        // Modify previous line if this is a curve 
-                        if (segmentType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) {
-                            let lastLine = formattedLines.pop();
-                            if (lastLine.endsWith('feet;')) { 
-                                if (result.tangencyStatus === 'non-tangent') {
-                                    lastLine = lastLine.replace(/feet;$/, 'feet to a point of non-tangent curvature;');
-                                } else {
-                                    lastLine = lastLine.replace(/feet;$/, 'feet to a point of curvature;');
-                                }
-                            }
-                            formattedLines.push(lastLine);
-                        }
-
-                        if (result.text) formattedLines.push(result.text);
-                        // Add validation warnings 
-                        if(result.validationWarnings?.length > 0) {
-                             warnings.push(...result.validationWarnings);
-                        }
-                        if (result.warning) warnings.push(result.warning); // Add parsing/logic warnings
-                        if (result.segmentData) segmentsData.push(result.segmentData); 
-                        if (result.isRlUncertain) uncertainSegmentsOutput[segmentCounter] = currentSegmentData;
-                        
-                        // Update state for next loop
-                        if (result.lastCourse) lastSegmentCourseString = result.lastCourse;
-                        lastSegmentWasCurve = (segmentType.toLowerCase() === 'curve'); 
-                        if(result.endCoordinates) {
-                            currentCoordinates = result.endCoordinates; // Update position
-                            coordinatesForPlotting.push(currentCoordinates); 
-                        }
-                    }
-                    segmentCounter = parseInt(segmentHeaderMatch[1]); 
-                    segmentType = segmentHeaderMatch[2]; 
-                    currentSegmentData = []; 
-                    continue; 
-                } else if (areaMatchTest) { 
-                     if (segmentType && currentSegmentData.length > 0) {
-                          const rlOverride = userRlOverrides[segmentCounter] || null;
-                        const result = processSegment(
-                            currentSegmentData, 
-                            segmentType, 
-                            lastSegmentCourseString, 
-                            firstCurveRLOverride, 
-                            segmentCounter, 
-                            formattedLines.length === 0,
-                            currentCoordinates,
-                            lastSegmentWasCurve, 
-                            rlOverride
-                        );
-
-                        // Modify previous line if this is a curve
+                        const result = processSegment(currentSegmentData, segmentType, lastSegmentCourseString, firstCurveRLOverride, segmentCounter, formattedLines.length === 0, currentCoordinates, lastSegmentWasCurve, rlOverride);
                         if (segmentType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) {
                             let lastLine = formattedLines.pop();
                             if (lastLine.endsWith('feet;')) {
-                                if (result.tangencyStatus === 'non-tangent') {
-                                    lastLine = lastLine.replace(/feet;$/, 'feet to a point of non-tangent curvature;');
-                                } else {
-                                    lastLine = lastLine.replace(/feet;$/, 'feet to a point of curvature;');
-                                }
+                                lastLine = lastLine.replace(/feet;$/, result.tangencyStatus === 'non-tangent' ? 'feet to a point of non-tangent curvature;' : 'feet to a point of curvature;');
                             }
                             formattedLines.push(lastLine);
                         }
-
                         if (result.text) formattedLines.push(result.text);
-                        if(result.validationWarnings?.length > 0) {
-                             warnings.push(...result.validationWarnings);
-                        }
+                        if(result.validationWarnings?.length > 0) warnings.push(...result.validationWarnings);
                         if (result.warning) warnings.push(result.warning);
                         if (result.segmentData) segmentsData.push(result.segmentData);
                         if (result.isRlUncertain) uncertainSegmentsOutput[segmentCounter] = currentSegmentData;
                         if (result.lastCourse) lastSegmentCourseString = result.lastCourse;
                         lastSegmentWasCurve = (segmentType.toLowerCase() === 'curve');
-                        if(result.endCoordinates) {
-                            currentCoordinates = result.endCoordinates;
-                            coordinatesForPlotting.push(currentCoordinates);
-                        }
+                        if(result.endCoordinates) { currentCoordinates = result.endCoordinates; coordinatesForPlotting.push(currentCoordinates); }
                     }
-                    segmentType = null; currentSegmentData = []; 
-                    currentSegmentData = []; 
+                    segmentCounter = parseInt(segmentHeaderMatch[1]); segmentType = segmentHeaderMatch[2]; currentSegmentData = []; continue;
+                } else if (areaMatchTest) {
+                     if (segmentType && currentSegmentData.length > 0) {
+                          const rlOverride = userRlOverrides[segmentCounter] || null;
+                        const result = processSegment(currentSegmentData, segmentType, lastSegmentCourseString, firstCurveRLOverride, segmentCounter, formattedLines.length === 0, currentCoordinates, lastSegmentWasCurve, rlOverride);
+                        if (segmentType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) {
+                            let lastLine = formattedLines.pop();
+                            if (lastLine.endsWith('feet;')) {
+                                lastLine = lastLine.replace(/feet;$/, result.tangencyStatus === 'non-tangent' ? 'feet to a point of non-tangent curvature;' : 'feet to a point of curvature;');
+                            }
+                            formattedLines.push(lastLine);
+                        }
+                        if (result.text) formattedLines.push(result.text);
+                        if(result.validationWarnings?.length > 0) warnings.push(...result.validationWarnings);
+                        if (result.warning) warnings.push(result.warning);
+                        if (result.segmentData) segmentsData.push(result.segmentData);
+                        if (result.isRlUncertain) uncertainSegmentsOutput[segmentCounter] = currentSegmentData;
+                        if (result.lastCourse) lastSegmentCourseString = result.lastCourse;
+                        lastSegmentWasCurve = (segmentType.toLowerCase() === 'curve');
+                        if(result.endCoordinates) { currentCoordinates = result.endCoordinates; coordinatesForPlotting.push(currentCoordinates); }
+                     }
+                    segmentType = null; currentSegmentData = [];
                 }
-
-
                 if (segmentType && trimmedLine !== "") {
                     currentSegmentData.push(trimmedLine);
                 }
             }
 
-            // Process the very last segment
             if (segmentType && currentSegmentData.length > 0) {
                  const rlOverride = userRlOverrides[segmentCounter] || null;
-                 const result = processSegment(
-                     currentSegmentData, 
-                     segmentType, 
-                     lastSegmentCourseString, 
-                     firstCurveRLOverride, 
-                     segmentCounter, 
-                     formattedLines.length === 0,
-                     currentCoordinates,
-                     lastSegmentWasCurve, 
-                     rlOverride
-                 );
-                
-                // Modify previous line if this is a curve
-                if (segmentType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) {
-                    let lastLine = formattedLines.pop();
-                    if (lastLine.endsWith('feet;')) {
-                        if (result.tangencyStatus === 'non-tangent') {
-                            lastLine = lastLine.replace(/feet;$/, 'feet to a point of non-tangent curvature;');
-                        } else {
-                            lastLine = lastLine.replace(/feet;$/, 'feet to a point of curvature;');
-                        }
-                    }
-                    formattedLines.push(lastLine);
-                }
-
-                if (result.text) formattedLines.push(result.text);
-                if(result.validationWarnings?.length > 0) {
-                     warnings.push(...result.validationWarnings);
-                }
-                if (result.warning) warnings.push(result.warning);
-                if (result.segmentData) segmentsData.push(result.segmentData);
-                if (result.isRlUncertain) uncertainSegmentsOutput[segmentCounter] = currentSegmentData;
-                if(result.endCoordinates) {
-                    coordinatesForPlotting.push(result.endCoordinates);
-                }
+                 const result = processSegment(currentSegmentData, segmentType, lastSegmentCourseString, firstCurveRLOverride, segmentCounter, formattedLines.length === 0, currentCoordinates, lastSegmentWasCurve, rlOverride);
+                  if (segmentType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) { let l=formattedLines.pop();if(l.endsWith('feet;')){l=l.replace(/feet;$/,result.tangencyStatus==='non-tangent'?'feet to a point of non-tangent curvature;':'feet to a point of curvature;');}formattedLines.push(l); }
+                  if (result.text) formattedLines.push(result.text);
+                  if(result.validationWarnings?.length > 0) warnings.push(...result.validationWarnings);
+                  if (result.warning) warnings.push(result.warning);
+                  if (result.segmentData) segmentsData.push(result.segmentData);
+                  if (result.isRlUncertain) uncertainSegmentsOutput[segmentCounter] = currentSegmentData;
+                  if(result.endCoordinates) { coordinatesForPlotting.push(result.endCoordinates); }
             }
-            
-            // Find and parse the Area line
+
             for (const line of allLinesFromFile) {
                 const trimmedLine = line.trim();
-                const areaMatch = trimmedLine.match(/Area:\s*([\d.,]+)\s*Sq\.\s*Ft\.?/i); 
+                const areaMatch = trimmedLine.match(/Area:\s*([\d.,]+)\s*Sq\.\s*Ft\.?/i);
                 if (areaMatch) {
                     try {
-                        const sqFtValueString = areaMatch[1].replace(/,/g, ''); 
-                        const sqFtValue = parseFloat(sqFtValueString);
-                        if (!isNaN(sqFtValue)) {
-                            parsedAreaValue = sqFtValue; // NEW
-                            const formattedSqFt = Math.round(sqFtValue).toLocaleString('en-US');
-                            const acres = sqFtValue / 43560;
-                            const formattedAcres = acres.toFixed(3);
-                            areaSummaryLine = `contains ${formattedSqFt} sq. ft. or ${formattedAcres} Acres`;
+                        const vS = areaMatch[1].replace(/,/g, '');
+                        const vF = parseFloat(vS);
+                        if (!isNaN(vF)) {
+                            parsedAreaValue = vF;
+                            const fSqFt = Math.round(vF).toLocaleString('en-US');
+                            const ac = vF / 43560;
+                            const fAc = ac.toFixed(3);
+                            areaSummaryLine = `contains ${fSqFt} sq. ft. or ${fAc} Acres`;
                         } else {
-                            warnings.push(`Could not parse square footage value from Area data: "${areaMatch[0]}"`);
+                            warnings.push(`Could not parse Area: "${areaMatch[0]}"`);
                         }
                     } catch (e) {
-                        warnings.push(`Error processing Area data "${areaMatch[0]}": ${e.message}`);
+                        warnings.push(`Error processing Area "${areaMatch[0]}": ${e.message}`);
                     }
-                    break; 
+                    break;
                 }
             }
-            if (!areaSummaryLine && allLinesFromFile.some(line => /area:/i.test(line) && !warnings.some(w => w.toLowerCase().includes("area summary line was not generated")))) {
-                 warnings.push("Area summary line was not generated. Check input file for 'Area: ... Sq. Ft.' format.");
-            }
+             if (!areaSummaryLine && allLinesFromFile.some(l=>/area:/i.test(l))&&!warnings.some(w=>w.toLowerCase().includes("area summary line was not generated"))) warnings.push("Area summary not generated. Check 'Area: ... Sq. Ft.' format.");
 
             return {formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue, uncertainSegments: uncertainSegmentsOutput }; // Return uncertain segments
         }
