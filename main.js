@@ -23,7 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const processButton = document.getElementById('processButton');
     const downloadButton = document.getElementById('downloadButton');
     const downloadCsvButton = document.getElementById('downloadCsvButton'); // NEW
-    const downloadKmlButton = document.getElementById('downloadKmlButton'); // NEW
+    const downloadDxfButton = document.getElementById('downloadDxfButton'); // NEW
     const statusMessage = document.getElementById('statusMessage');
     const previewArea = document.getElementById('previewArea');
     const loader = document.getElementById('loader');
@@ -100,13 +100,13 @@ document.addEventListener('DOMContentLoaded', () => {
         // Disable download buttons
         downloadButton.disabled = true;
         downloadCsvButton.disabled = true; // NEW
-        downloadKmlButton.disabled = true; // NEW
+        downloadDxfButton.disabled = true; // NEW
         downloadButton.classList.replace('bg-[#003366]', 'bg-gray-400');
         downloadButton.classList.replace('hover:bg-[#002244]', 'hover:bg-gray-500');
         downloadCsvButton.classList.replace('bg-[#003366]', 'bg-gray-400'); // NEW
         downloadCsvButton.classList.replace('hover:bg-[#002244]', 'hover:bg-gray-500'); // NEW
-        downloadKmlButton.classList.replace('bg-[#003366]', 'bg-gray-400'); // NEW
-        downloadKmlButton.classList.replace('hover:bg-[#002244]', 'hover:bg-gray-500'); // NEW
+        downloadDxfButton.classList.replace('bg-[#003366]', 'bg-gray-400'); // NEW
+        downloadDxfButton.classList.replace('hover:bg-[#002244]', 'hover:bg-gray-500'); // NEW
 
         // Clear warnings and results
         statusMessage.textContent = 'Initializing...';
@@ -174,10 +174,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     downloadCsvButton.classList.replace('bg-gray-400', 'bg-[#003366]');
                     downloadCsvButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
                 }
-                if (coordinatesForPlotting.length > 1) {
-                    downloadKmlButton.disabled = false;
-                    downloadKmlButton.classList.replace('bg-gray-400', 'bg-[#003366]');
-                    downloadKmlButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
+                if (coordinatesForPlotting.length > 1) { // Enable DXF download
+                    downloadDxfButton.disabled = false;
+                    downloadDxfButton.classList.replace('bg-gray-400', 'bg-[#003366]');
+                    downloadDxfButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
                 }
 
                 // NEW: Generate manual controls if needed
@@ -263,16 +263,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // NEW: Download KML
-    downloadKmlButton.addEventListener('click', async () => {
+    // NEW: Download DXF (replaces KML)
+    downloadDxfButton.addEventListener('click', async () => {
         if (coordinatesForPlotting.length <= 1) {
             statusMessage.textContent = "No coordinate data to download.";
             return;
         }
-        statusMessage.textContent = "Generating KML file...";
+        statusMessage.textContent = "Generating DXF file...";
         try {
-            await generateAndDownloadKml(coordinatesForPlotting, segmentsDataForExport);
-            statusMessage.textContent = 'KML file downloaded successfully!';
+            await generateAndDownloadDxf(coordinatesForPlotting);
+            statusMessage.textContent = 'DXF file downloaded successfully!';
         } catch (error) {
             statusMessage.textContent = `Error downloading KML: ${error.message}`;
         }
@@ -1436,55 +1436,78 @@ async function generateAndDownloadCsv(segmentsData) {
     }
 }
 
-// NEW: Download KML
-async function generateAndDownloadKml(coordinates, segmentsData) {
+// NEW: Download DXF
+async function generateAndDownloadDxf(coordinates) {
     try {
-        // KML uses Lon, Lat, Alt. We are using X, Y, Z.
-        // We will treat X as Lon and Y as Lat for plotting.
-        let kmlCoordinates = coordinates.map(c => `${c[0]},${c[1]},0`).join(' ');
-
-        let description = segmentsData.map(seg => {
-            if (seg.type.toLowerCase() === 'line') {
-                return `Seg ${seg.segment}: ${seg.type} - ${seg.course}, ${seg.length}'`;
-            } else {
-                return `Seg ${seg.segment}: ${seg.type} - L:${seg.length}', R:${seg.radius}', D:${seg.delta}`;
-            }
-        }).join('\n');
-
-        const kmlContent = `<?xml version="1.0" encoding="UTF-8"?>
-<kml xmlns="http://www.opengis.net/kml/2.2">
-  <Document>
-    <name>Legal Description Plot</name>
-    <Style id="traverseStyle">
-      <LineStyle>
-        <color>ff003366</color> <width>2</width>
-      </LineStyle>
-      <PolyStyle>
-        <color>80003366</color> <fill>1</fill>
-        <outline>1</outline>
-      </PolyStyle>
-    </Style>
-    <Placemark>
-      <name>Parsed Traverse</name>
-      <description><![CDATA[${description.replace(/\n/g, '<br>')}]]></description>
-      <styleUrl>#traverseStyle</styleUrl>
-      <Polygon>
-        <outerBoundaryIs>
-          <LinearRing>
-            <coordinates>${kmlCoordinates}</coordinates>
-          </LinearRing>
-        </outerBoundaryIs>
-      </Polygon>
-    </Placemark>
-  </Document>
-</kml>`;
-
-        const blob = new Blob([kmlContent], {
-            type: "application/vnd.google-earth.kml+xml;charset=utf-8"
+        let dxfContent = `  0
+SECTION
+  2
+HEADER
+  9
+$ACADVER
+  1
+AC1009
+  0
+ENDSEC
+  0
+SECTION
+  2
+TABLES
+  0
+TABLE
+  2
+LAYER
+  0
+LAYER
+  2
+0
+ 70
+     0
+ 62
+     7
+  6
+CONTINUOUS
+  0
+ENDTAB
+  0
+ENDSEC
+  0
+SECTION
+  2
+ENTITIES
+  0
+POLYLINE
+  8
+0
+ 66
+     1
+ 70
+     1
+`;
+        coordinates.forEach(([x, y]) => {
+            dxfContent += `  0
+VERTEX
+  8
+0
+ 10
+${x.toFixed(4)}
+ 20
+${y.toFixed(4)}
+  0
+`;
         });
-        saveAs(blob, "legal_description_plot.kml");
+
+        dxfContent += `SEQEND
+  0
+ENDSEC
+  0
+EOF
+`;
+
+        const blob = new Blob([dxfContent], { type: "application/dxf;charset=utf-8" });
+        saveAs(blob, "legal_description_plot.dxf");
     } catch (error) {
-        console.error("Error generating KML file:", error);
-        throw new Error('Error generating KML file.');
+        console.error("Error generating DXF file:", error);
+        throw new Error('Error generating DXF file.');
     }
 }
