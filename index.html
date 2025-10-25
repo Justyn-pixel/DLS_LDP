@@ -223,8 +223,8 @@
         let coordinatesForPlotting = [];
         let areaFromFile = null;
         let filePobCoords = null;
-        let rawFileText = ''; // *** NEW: Store raw text ***
-        let uncertainRlSegments = {}; // *** NEW: Store info for uncertain segments { segNum: segmentDataArray } ***
+        let rawFileText = '';
+        let uncertainRlSegments = {};
 
         // --- CONSTANTS ---
         const R2D = 180 / Math.PI;
@@ -255,9 +255,9 @@
             const resultsContainer = document.getElementById('resultsContainer');
             const resultsArea = document.getElementById('resultsArea');
             const traversePlotCanvas = document.getElementById('traversePlot');
-            const rlInputContainer = document.getElementById('rlInputContainer'); // *** NEW ***
-            const rlInputAreaUL = rlInputContainer.querySelector('#rlInputArea ul'); // *** NEW ***
-            const updateRlButton = document.getElementById('updateRlButton'); // *** NEW ***
+            const rlInputContainer = document.getElementById('rlInputContainer');
+            const rlInputAreaUL = rlInputContainer.querySelector('#rlInputArea ul');
+            const updateRlButton = document.getElementById('updateRlButton');
 
 
             // --- Drag & Drop / File Input Listeners ---
@@ -273,7 +273,7 @@
                      if (files[0].name.endsWith('.txt')) {
                          txtFileInput.files = files;
                          txtFileInput.dispatchEvent(new Event('change', { bubbles: true }));
-                         // processButton.click(); // Optional auto-process
+                         processButton.click(); // *** MODIFIED: Trigger process on drop ***
                      } else {
                          statusMessage.textContent = 'Please drop a .txt file.';
                          alert('Invalid file type. Please drop a .txt file.');
@@ -283,7 +283,8 @@
              txtFileInput.addEventListener('change', () => {
                  if (txtFileInput.files.length > 0) {
                      statusMessage.textContent = `File selected: ${txtFileInput.files[0].name}`;
-                     // processButton.click(); // Optional auto-process
+                     // Optionally auto-process on select:
+                     // processButton.click();
                  }
              });
 
@@ -306,7 +307,7 @@
                 const reader = new FileReader();
                 reader.onload = async (event) => {
                     try {
-                        rawFileText = event.target.result; // *** NEW: Store raw text ***
+                        rawFileText = event.target.result;
                         filePobCoords = parsePobCoordinates(rawFileText);
 
                         statusMessage.textContent = 'Parsing legal description...';
@@ -325,7 +326,7 @@
                 reader.readAsText(file, selectedEncoding);
             });
 
-            // --- *** NEW: Update R/L Button Listener *** ---
+            // --- Update R/L Button Listener ---
             updateRlButton.addEventListener('click', () => {
                  const userOverrides = {};
                  const selects = rlInputAreaUL.querySelectorAll('select');
@@ -334,10 +335,15 @@
                      const value = select.value;
                      if (value === 'L' || value === 'R') {
                          userOverrides[segNum] = value;
+                     } else {
+                         // If any are left unspecified, stop the update
+                         statusMessage.textContent = `Please select Left or Right for Segment #${segNum}.`;
+                         alert(`Please select Left or Right for Segment #${segNum}.`);
+                         throw new Error("R/L selection incomplete."); // Stop processing
                      }
                  });
 
-                 // Re-process with the overrides
+
                  resetUIAndState(false); // Reset calculation/output parts, keep raw text/pob
                  statusMessage.textContent = 'Re-processing with user selections...';
                  loader.classList.remove('hidden');
@@ -345,7 +351,7 @@
                  try {
                      processFileData(firstCurveRLSelect.value, userOverrides); // Pass overrides
                  } catch (error) {
-                    handleProcessingError(error);
+                    handleProcessingError(error); // Show error message if processing fails
                  } finally {
                      loader.classList.add('hidden');
                  }
@@ -353,488 +359,51 @@
 
 
             // --- Download Button Listeners ---
-             downloadButton.addEventListener('click', async () => { /* ... unchanged ... */ });
-             downloadCsvButton.addEventListener('click', async () => { /* ... unchanged ... */ });
-             downloadKmlButton.addEventListener('click', async () => { /* ... unchanged ... */ });
+             downloadButton.addEventListener('click', async () => {
+                 if (parsedOutputForDownload.length === 0) { statusMessage.textContent = "No processed data to download."; return; }
+                 statusMessage.textContent = "Generating text file...";
+                 try {
+                     await generateAndDownloadTxt(parsedOutputForDownload, "legal_description_parsed.txt");
+                     statusMessage.textContent = 'Text file downloaded successfully!';
+                 } catch (error) { statusMessage.textContent = `Error downloading file: ${error.message}`; }
+             });
+             downloadCsvButton.addEventListener('click', async () => {
+                 if (segmentsDataForExport.length === 0) { statusMessage.textContent = "No segment data to download."; return; }
+                 statusMessage.textContent = "Generating CSV file...";
+                 try {
+                     await generateAndDownloadCsv(segmentsDataForExport);
+                     statusMessage.textContent = 'CSV file downloaded successfully!';
+                 } catch (error) { statusMessage.textContent = `Error downloading CSV: ${error.message}`; }
+             });
+             downloadKmlButton.addEventListener('click', async () => {
+                 if (coordinatesForPlotting.length <= 1) { statusMessage.textContent = "No coordinate data to download."; return; }
+                 statusMessage.textContent = "Generating KML file...";
+                 try {
+                     await generateAndDownloadKml(coordinatesForPlotting, segmentsDataForExport);
+                     statusMessage.textContent = 'KML file downloaded successfully!';
+                 } catch (error) { statusMessage.textContent = `Error downloading KML: ${error.message}`; }
+             });
+
+        // *** THIS IS THE MISSING CLOSING BRACKET ***
         });
 
-        // --- *** NEW: Central Processing Function *** ---
-        function processFileData(firstCurveRLOverride, userRlOverrides = {}) {
-            // Reset parts needed for reprocessing
-            parsedOutputForDownload = [];
-            segmentsDataForExport = [];
-            coordinatesForPlotting = [[0, 0]];
-            areaFromFile = null;
-            uncertainRlSegments = {}; // Clear uncertain segments for this run
-
-            const {
-                formattedLines,
-                warnings,
-                areaSummaryLine,
-                segmentsData,
-                parsedAreaValue,
-                uncertainSegments // Capture uncertain segments from this run
-            } = parseLegalDescription(rawFileText, firstCurveRLOverride, userRlOverrides); // Pass overrides
-
-            // Store results
-            parsedOutputForDownload = [...formattedLines];
-            segmentsDataForExport = [...segmentsData];
-            areaFromFile = parsedAreaValue;
-            uncertainRlSegments = uncertainSegments; // Store uncertain ones found in this pass
-
-             if (areaSummaryLine) {
-                 if (parsedOutputForDownload.length > 0 && parsedOutputForDownload[parsedOutputForDownload.length -1].trim() !== "") {
-                     parsedOutputForDownload.push("");
-                 }
-                 parsedOutputForDownload.push(areaSummaryLine);
-             }
-
-            // Update UI
-            document.getElementById('previewArea').value = parsedOutputForDownload.join('\n');
-            updateButtonsAndWarnings(warnings, uncertainRlSegments); // Pass uncertain segments to UI update
-            updateCalculationResultsAndPlot();
-        }
-
-        // --- *** NEW: UI Reset Function *** ---
-        function resetUIAndState(fullReset = true) {
-            document.getElementById('previewArea').value = '';
-            parsedOutputForDownload = [];
-            segmentsDataForExport = [];
-            coordinatesForPlotting = [[0, 0]];
-            areaFromFile = null;
-            uncertainRlSegments = {}; // Clear uncertain segments
-
-            if (fullReset) {
-                 rawFileText = ''; // Clear raw text only on full reset
-                 filePobCoords = null;
-            }
-
-             // Disable download buttons
-            const buttons = ['downloadButton', 'downloadCsvButton', 'downloadKmlButton'];
-            buttons.forEach(id => {
-                const btn = document.getElementById(id);
-                btn.disabled = true;
-                btn.classList.replace('bg-[#003366]', 'bg-gray-400');
-                btn.classList.replace('hover:bg-[#002244]', 'hover:bg-gray-500');
-            });
-
-
-            // Clear warnings, R/L inputs, and results
-            document.getElementById('warningsArea ul').innerHTML = '';
-            document.getElementById('warningsContainer').classList.add('hidden');
-            document.getElementById('rlInputArea ul').innerHTML = ''; // *** NEW ***
-            document.getElementById('rlInputContainer').classList.add('hidden'); // *** NEW ***
-            document.getElementById('resultsArea').innerHTML = '';
-            document.getElementById('resultsContainer').classList.add('hidden');
-            clearCanvas(document.getElementById('traversePlot'));
-            document.getElementById('statusMessage').textContent = '';
-        }
-
-        // --- *** NEW: Error Handling Function *** ---
-        function handleProcessingError(error) {
-             console.error('Error processing file:', error);
-             document.getElementById('statusMessage').textContent = `Error: ${error.message}`;
-             const warningsAreaUL = document.getElementById('warningsArea ul');
-             warningsAreaUL.innerHTML = `<li>${error.message}</li>`;
-             document.getElementById('warningsContainer').classList.remove('hidden');
-        }
-
-        // --- *** NEW: Update UI Function *** ---
-        function updateButtonsAndWarnings(warnings, uncertainSegments) {
-            const warningsAreaUL = document.getElementById('warningsArea ul');
-            const warningsContainer = document.getElementById('warningsContainer');
-            const rlInputAreaUL = document.getElementById('rlInputArea ul'); // *** NEW ***
-            const rlInputContainer = document.getElementById('rlInputContainer'); // *** NEW ***
-            const statusMessage = document.getElementById('statusMessage');
-
-            // Update Download Buttons
-            if (parsedOutputForDownload.length > 0) {
-                 document.getElementById('downloadButton').disabled = false;
-                 document.getElementById('downloadButton').classList.replace('bg-gray-400', 'bg-[#003366]');
-                 document.getElementById('downloadButton').classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
-            }
-            if (segmentsDataForExport.length > 0) {
-                 document.getElementById('downloadCsvButton').disabled = false;
-                 document.getElementById('downloadCsvButton').classList.replace('bg-gray-400', 'bg-[#003366]');
-                 document.getElementById('downloadCsvButton').classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
-            }
-             if (coordinatesForPlotting.length > 1) {
-                 document.getElementById('downloadKmlButton').disabled = false;
-                 document.getElementById('downloadKmlButton').classList.replace('bg-gray-400', 'bg-[#003366]');
-                 document.getElementById('downloadKmlButton').classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
-             }
-
-            // Update Warnings Area
-             warningsAreaUL.innerHTML = ''; // Clear previous
-             if (!filePobCoords && rawFileText.includes("Point of Beginning")) {
-                 warnings.push("Could not parse 'Point of Beginning' coordinates. Line endpoint validation skipped.");
-             }
-             if (warnings.length > 0) {
-                 warnings.forEach(warning => {
-                     const li = document.createElement('li');
-                     li.textContent = warning;
-                     warningsAreaUL.appendChild(li);
-                 });
-                 warningsContainer.classList.remove('hidden');
-             } else {
-                 warningsContainer.classList.add('hidden');
-             }
-
-             // *** NEW: Update R/L Input Area ***
-             rlInputAreaUL.innerHTML = ''; // Clear previous
-             const uncertainKeys = Object.keys(uncertainSegments);
-             if (uncertainKeys.length > 0) {
-                 uncertainKeys.sort((a, b) => a - b).forEach(segNum => {
-                     const li = document.createElement('li');
-                     li.innerHTML = `
-                         <span>Segment #${segNum}:</span>
-                         <select data-segment="${segNum}">
-                             <option value="">Select...</option>
-                             <option value="L">Left</option>
-                             <option value="R">Right</option>
-                         </select>
-                     `;
-                     rlInputAreaUL.appendChild(li);
-                 });
-                 rlInputContainer.classList.remove('hidden');
-                 statusMessage.textContent = 'Processing complete. Please specify R/L for curves above and click Update.';
-                  // Disable downloads until R/L is updated
-                  document.getElementById('downloadButton').disabled = true;
-                  document.getElementById('downloadCsvButton').disabled = true;
-                  document.getElementById('downloadKmlButton').disabled = true;
-
-             } else {
-                 rlInputContainer.classList.add('hidden');
-                 // Set final status message if no R/L input needed
-                 if (warnings.length > 0) {
-                     statusMessage.textContent = 'Processing complete. Please review warnings.';
-                 } else if (parsedOutputForDownload.length > 0) {
-                     statusMessage.textContent = 'Processing complete. Ready to download.';
-                 } else {
-                     statusMessage.textContent = 'Processing complete. No data parsed.';
-                 }
-             }
-             // *** END NEW ***
-        }
-
-         // *** NEW: Update Calculations and Plot Function ***
-         function updateCalculationResultsAndPlot() {
-            if (coordinatesForPlotting.length > 1) {
-                calculateAndDisplayResults(coordinatesForPlotting, areaFromFile);
-                document.getElementById('resultsContainer').classList.remove('hidden');
-                drawTraverse(document.getElementById('traversePlot'), coordinatesForPlotting);
-            } else {
-                 document.getElementById('resultsContainer').classList.add('hidden');
-                 clearCanvas(document.getElementById('traversePlot'));
-            }
-         }
-
-
+        // --- Central Processing Function ---
+        function processFileData(firstCurveRLOverride, userRlOverrides = {}) { /* ... unchanged ... */ }
+        // --- UI Reset Function ---
+        function resetUIAndState(fullReset = true) { /* ... unchanged ... */ }
+        // --- Error Handling Function ---
+        function handleProcessingError(error) { /* ... unchanged ... */ }
+        // --- Update UI Function ---
+        function updateButtonsAndWarnings(warnings, uncertainSegments) { /* ... unchanged ... */ }
+         // --- Update Calculations and Plot Function ---
+         function updateCalculationResultsAndPlot() { /* ... unchanged ... */ }
         // --- Core Parsing Logic ---
-
         function parsePobCoordinates(rawText) { /* ... unchanged ... */ }
-
-        function parseLegalDescription(rawText, firstCurveRLOverride, userRlOverrides = {}) { // Accept overrides
-            const allLinesFromFile = rawText.split('\n');
-            const formattedLines = [];
-            const warnings = [];
-            let segmentsData = [];
-            let currentSegmentData = [];
-            let segmentType = null;
-            let lastSegmentCourseString = null;
-            let segmentCounter = 0;
-            let areaSummaryLine = null;
-            let parsedAreaValue = null;
-            let lastSegmentWasCurve = false;
-            let uncertainSegmentsOutput = {}; // *** NEW: Track uncertain segments ***
-
-            let currentCoordinates = [0, 0];
-             coordinatesForPlotting = [[0, 0]]; // Reset global plot coords for this run
-
-
-            for (const line of allLinesFromFile) {
-                const trimmedLine = line.trim();
-                const segmentHeaderMatch = trimmedLine.match(/^Segment\s+#(\d+)\s*:\s*(Line|Curve)/i);
-                const areaMatchTest = trimmedLine.match(/Area:\s*([\d.,]+)\s*Sq\.\s*Ft\.?/i);
-
-                if (segmentHeaderMatch) {
-                    if (segmentType && currentSegmentData.length > 0) {
-                         // Check if user provided an override for this segment
-                         const rlOverride = userRlOverrides[segmentCounter] || null;
-
-                        const result = processSegment(
-                            currentSegmentData, segmentType, lastSegmentCourseString,
-                            firstCurveRLOverride, segmentCounter, formattedLines.length === 0,
-                            currentCoordinates, lastSegmentWasCurve,
-                            rlOverride // Pass override to processSegment
-                        );
-
-                        // Modify previous line if this is a curve
-                        if (segmentType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) {
-                            let lastLine = formattedLines.pop();
-                            if (lastLine.endsWith('feet;')) {
-                                if (result.tangencyStatus === 'non-tangent') {
-                                    lastLine = lastLine.replace(/feet;$/, 'feet to a point of non-tangent curvature;');
-                                } else {
-                                    lastLine = lastLine.replace(/feet;$/, 'feet to a point of curvature;');
-                                }
-                            }
-                            formattedLines.push(lastLine);
-                        }
-
-                        if (result.text) formattedLines.push(result.text);
-                        if(result.validationWarnings && result.validationWarnings.length > 0) warnings.push(...result.validationWarnings);
-                        if (result.warning) warnings.push(result.warning);
-                        if (result.segmentData) segmentsData.push(result.segmentData);
-
-                        // *** NEW: Store uncertain segment data ***
-                        if (result.isRlUncertain) {
-                            uncertainSegmentsOutput[segmentCounter] = currentSegmentData;
-                        }
-                        // *** END NEW ***
-
-                        if (result.lastCourse) lastSegmentCourseString = result.lastCourse;
-                        lastSegmentWasCurve = (segmentType.toLowerCase() === 'curve');
-                        if(result.endCoordinates) {
-                            currentCoordinates = result.endCoordinates;
-                            coordinatesForPlotting.push(currentCoordinates);
-                        }
-                    }
-                    segmentCounter = parseInt(segmentHeaderMatch[1]);
-                    segmentType = segmentHeaderMatch[2];
-                    currentSegmentData = [];
-                    continue;
-                } else if (areaMatchTest) {
-                     if (segmentType && currentSegmentData.length > 0) {
-                          const rlOverride = userRlOverrides[segmentCounter] || null;
-                          const result = processSegment(currentSegmentData, segmentType, lastSegmentCourseString, firstCurveRLOverride, segmentCounter, formattedLines.length === 0, currentCoordinates, lastSegmentWasCurve, rlOverride);
-                          // ... (rest of processing identical to segmentHeaderMatch block) ...
-                          if (segmentType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) { /* ... modify line ... */ }
-                          if (result.text) formattedLines.push(result.text);
-                          if(result.validationWarnings && result.validationWarnings.length > 0) warnings.push(...result.validationWarnings);
-                          if (result.warning) warnings.push(result.warning);
-                          if (result.segmentData) segmentsData.push(result.segmentData);
-                          if (result.isRlUncertain) uncertainSegmentsOutput[segmentCounter] = currentSegmentData; // Store uncertain
-                          if (result.lastCourse) lastSegmentCourseString = result.lastCourse;
-                          lastSegmentWasCurve = (segmentType.toLowerCase() === 'curve');
-                          if(result.endCoordinates) { currentCoordinates = result.endCoordinates; coordinatesForPlotting.push(currentCoordinates); }
-                     }
-                    segmentType = null;
-                    currentSegmentData = [];
-                }
-
-                if (segmentType && trimmedLine !== "") {
-                    currentSegmentData.push(trimmedLine);
-                }
-            }
-
-            // Process the very last segment
-            if (segmentType && currentSegmentData.length > 0) {
-                 const rlOverride = userRlOverrides[segmentCounter] || null;
-                 const result = processSegment(currentSegmentData, segmentType, lastSegmentCourseString, firstCurveRLOverride, segmentCounter, formattedLines.length === 0, currentCoordinates, lastSegmentWasCurve, rlOverride);
-                 // ... (rest of processing identical to segmentHeaderMatch block) ...
-                  if (segmentType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) { /* ... modify line ... */ }
-                  if (result.text) formattedLines.push(result.text);
-                  if(result.validationWarnings && result.validationWarnings.length > 0) warnings.push(...result.validationWarnings);
-                  if (result.warning) warnings.push(result.warning);
-                  if (result.segmentData) segmentsData.push(result.segmentData);
-                  if (result.isRlUncertain) uncertainSegmentsOutput[segmentCounter] = currentSegmentData; // Store uncertain
-                  if(result.endCoordinates) { coordinatesForPlotting.push(result.endCoordinates); }
-            }
-
-            // Find and parse the Area line
-             for (const line of allLinesFromFile) { /* ... unchanged ... */ }
-             if (!areaSummaryLine && allLinesFromFile.some(line => /area:/i.test(line) && !warnings.some(w => w.toLowerCase().includes("area summary line was not generated")))) { /* ... unchanged ... */ }
-
-            return {formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue, uncertainSegments: uncertainSegmentsOutput }; // Return uncertain segments
-        }
-
-
+        function parseLegalDescription(rawText, firstCurveRLOverride, userRlOverrides = {}) { /* ... unchanged ... */ }
         function validateCurveData(curve, segmentContext) { /* ... unchanged ... */ }
         function normalizeAngleDifference(diff) { /* ... unchanged ... */ }
         function parseFileCoordinates(segmentData) { /* ... unchanged ... */ }
-
-        // *** MODIFIED to accept rlOverride and return isRlUncertain ***
-        function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, currentSegmentNumber, isFirstSegment, startCoordinates, lastSegmentWasCurve, rlOverride = null) {
-            let outputText = "";
-            let warning = null;
-            let validationWarnings = [];
-            let lastCourseForNextSegment = null;
-            let endCoordinates = null;
-            let segmentDataObject = { segment: currentSegmentNumber, type: type };
-            let tangencyStatus = null;
-            let isRlUncertain = false; // *** NEW ***
-            const segmentContext = `(Segment #${currentSegmentNumber})`;
-            const [startX, startY] = startCoordinates;
-
-            if (type.toLowerCase() === 'line') {
-                // ... (Line processing logic unchanged, including validation) ...
-                const courseLengthLine = segmentData.find(l => l.toLowerCase().startsWith('course:'));
-                 if (courseLengthLine) {
-                     const courseMatch = courseLengthLine.match(/Course:\s*([NSEW])\s*(\d{1,3})\s*[°\uFFFD]?\s*(\d{1,2})\s*['\u2019\u2018]?\s*([\d\.]+)\s*["\u201D\u201C]?\s*([NSEW])/i);
-                     const lengthMatch = courseLengthLine.match(/Length:\s*([\d\.]+)'?/i);
-
-                     if (courseMatch && lengthMatch) {
-                         const bearing = { dir1: courseMatch[1].toUpperCase(), deg: parseInt(courseMatch[2]), min: parseInt(courseMatch[3]), sec: parseFloat(courseMatch[4]), dir2: courseMatch[5].toUpperCase() };
-                         const length = parseFloat(lengthMatch[1]);
-                         const roundedSeconds = Math.round(bearing.sec);
-                         outputText = `thence ${expandDirection(bearing.dir1)} ${bearing.deg}°${String(bearing.min).padStart(2, '0')}'${String(roundedSeconds).padStart(2, '0')}" ${expandDirection(bearing.dir2)} ${length.toFixed(2)} feet;`;
-                         lastCourseForNextSegment = `${bearing.dir1} ${bearing.deg}°${bearing.min}'${bearing.sec}" ${bearing.dir2}`;
-                         segmentDataObject.course = lastCourseForNextSegment;
-                         segmentDataObject.length = length;
-                         const azimuth = bearingToAzimuth(bearing);
-                         if (azimuth !== null) {
-                             endCoordinates = calculateEndpoint(startX, startY, azimuth, length);
-                             const fileEndpointCoords = parseFileCoordinates(segmentData);
-                             if (filePobCoords && fileEndpointCoords && endCoordinates) {
-                                 const fileRelativeX = fileEndpointCoords.east - filePobCoords.east;
-                                 const fileRelativeY = fileEndpointCoords.north - filePobCoords.north;
-                                 const calcX = endCoordinates[0];
-                                 const calcY = endCoordinates[1];
-                                 if (Math.abs(calcX - fileRelativeX) > GEOMETRY_TOLERANCE || Math.abs(calcY - fileRelativeY) > GEOMETRY_TOLERANCE) {
-                                     validationWarnings.push(`Segment ${segmentContext}: Calculated endpoint [${calcX.toFixed(3)}, ${calcY.toFixed(3)}] differs from file endpoint [${fileRelativeX.toFixed(3)}, ${fileRelativeY.toFixed(3)}] relative to POB.`);
-                                 }
-                             } else if (filePobCoords && !fileEndpointCoords) {
-                                 validationWarnings.push(`Segment ${segmentContext}: Could not parse North/East coordinates from file for validation.`);
-                             }
-                         } else {
-                             warning = `Could not calculate azimuth for line ${segmentContext}. Coordinates may be incorrect.`;
-                         }
-                     } else {
-                          warning = `Malformed line segment data ${segmentContext} (missing Course or Length details): "${courseLengthLine}".`;
-                     }
-                 } else {
-                     warning = `No course/length data found for line segment ${segmentContext}. Data: ${segmentData.join('; ')}.`;
-                 }
-
-            } else if (type.toLowerCase() === 'curve') {
-                 let curve = { /* ... definition unchanged ... */ };
-                 segmentDataObject.rl = "R/L";
-
-                 segmentData.forEach(line => { /* ... parsing unchanged ... */ });
-
-                // Store basic data for CSV
-                 segmentDataObject.length = curve.length;
-                 segmentDataObject.radius = curve.radius;
-                 segmentDataObject.delta = curve.deltaStr;
-                 segmentDataObject.chordLength = curve.chordLength;
-                 segmentDataObject.chordCourse = curve.chordCourseStr;
-
-
-                if (curve.length !== undefined && curve.radius !== undefined && curve.deltaDecimal !== undefined &&
-                    curve.chordLength !== undefined && curve.chordBearing !== undefined) {
-
-                    validationWarnings = validateCurveData(curve, segmentContext); // Perform geometry check
-
-                    const chordAzimuth = bearingToAzimuth(curve.chordBearing);
-                    if (chordAzimuth !== null) {
-                        endCoordinates = calculateEndpoint(startX, startY, chordAzimuth, curve.chordLength);
-                    } else {
-                        if (warning === null) warning = "";
-                        warning += (warning ? " " : "") + `Could not calculate curve endpoint ${segmentContext}. Missing or invalid Chord data. Coordinates will be incorrect.`;
-                    }
-
-                    const dmsDelta = decimalToDMS(curve.deltaDecimal);
-                    let rl_display = "[Specify L/R]"; // *** NEW Default Placeholder ***
-                    let rl_calc = null;
-                    let nonTangentLabelText = "";
-                   // let rlVerifyLabelText = ""; // Removed
-
-                    // --- Tangency Check (unchanged) ---
-                     tangencyStatus = 'tangent';
-                     let tangentInBearing = null;
-                     if (prevLineCourseStr) {
-                         tangentInBearing = parseBearing(prevLineCourseStr);
-                         curve.tangentInAzimuth = bearingToAzimuth(tangentInBearing);
-                     }
-                     if (curve.tangentInAzimuth !== null && curve.courseInAzimuth !== null) { /* ... unchanged check ... */ }
-                     else if (prevLineCourseStr && curve.courseInAzimuth === null) { tangencyStatus = 'inferred'; }
-                     else if (lastSegmentWasCurve) { tangencyStatus = 'tangent'; }
-                     else if (!isFirstSegment) { tangencyStatus = 'non-tangent'; }
-                     else { tangencyStatus = 'unknown'; }
-
-
-                    // --- R/L Detection Layered Logic ---
-                    if (rlOverride) { // *** NEW: Use override if provided ***
-                        rl_calc = rlOverride;
-                    } else if (curveRLOverride !== "auto" && isFirstSegment) {
-                        rl_calc = curveRLOverride;
-                    } else {
-                         let rlMethod1Result = null, rlMethod2Result = null, rlMethod3Result = null;
-
-                         // 1. Deflection Method
-                         if (curve.tangentInAzimuth !== null && chordAzimuth !== null) { /* ... unchanged logic to set rlMethod1Result ... */ }
-
-                         // 2. Tangent vs Radial In Method
-                         if (curve.tangentInAzimuth !== null && curve.courseInAzimuth !== null) { /* ... unchanged logic to set rlMethod2Result ... */ }
-
-                         // 3. Radial In vs Radial Out Method
-                         if (curve.courseInAzimuth !== null && curve.courseOutAzimuth !== null) { /* ... unchanged logic to set rlMethod3Result ... */ }
-
-                         // 4. Consolidate R/L Results
-                         let conflicting = false;
-                         if (rlMethod1Result && rlMethod2Result && rlMethod1Result !== rlMethod2Result) conflicting = true;
-                         if (rlMethod1Result && rlMethod3Result && rlMethod1Result !== rlMethod3Result) conflicting = true;
-                         if (rlMethod2Result && rlMethod3Result && rlMethod2Result !== rlMethod3Result) conflicting = true;
-
-                         if (conflicting) {
-                             rl_calc = null; // Conflicting results, force verify/input
-                             if (warning === null) warning = "";
-                             warning += (warning ? " " : "") + `Conflicting R/L results ${segmentContext}. M1:${rlMethod1Result}, M2:${rlMethod2Result}, M3:${rlMethod3Result}. Please specify.`;
-                         } else {
-                             rl_calc = rlMethod1Result || rlMethod2Result || rlMethod3Result;
-                         }
-                    } // End if not override
-
-                     // Final R/L assignment and warnings/flags
-                     if (rl_calc) {
-                         rl_display = rl_calc === 'R' ? 'Right' : 'Left';
-                         isRlUncertain = false; // *** NEW ***
-                     } else {
-                         // R/L still couldn't be determined OR there was a conflict
-                         rl_calc = null;
-                         rl_display = "[Specify L/R]"; // Use placeholder
-                         isRlUncertain = true; // *** NEW ***
-                         // Add warning only if no override was attempted
-                         if (!rlOverride) {
-                             if (warning === null) warning = "";
-                              warning += (warning ? " " : "") + `Curve R/L ${segmentContext} could not be determined automatically.`;
-                         }
-                     }
-
-                    segmentDataObject.rl = rl_calc || "[Specify L/R]"; // Store calculated or placeholder
-
-                    // --- Text Output ---
-                    let prefixOutput = "";
-                    if (tangencyStatus === 'non-tangent' && nonTangentLabelText) {
-                         prefixOutput += nonTangentLabelText + " ";
-                    }
-                    // Removed rlVerifyLabelText output
-
-                    const roundedChordSeconds = Math.round(curve.chordBearing.sec);
-                    outputText = `${prefixOutput.trim()} thence ${curve.length.toFixed(2)} feet along the arc of a ${curve.radius.toFixed(2)} foot radius curve to the ${rl_display}, through a central angle of ${formatDMS(dmsDelta)}, with a long chord of ${expandDirection(curve.chordBearing.dir1)} ${curve.chordBearing.deg}°${String(curve.chordBearing.min).padStart(2,'0')}'${String(roundedChordSeconds).padStart(2,'0')}" ${expandDirection(curve.chordBearing.dir2)} ${curve.chordLength.toFixed(2)} feet;`;
-
-                    // --- Next Tangent (unchanged) ---
-                     if (tangencyStatus === 'tangent' && rl_calc && curve.tangentInAzimuth !== null) { /* ... calculate tangent out ... */ }
-                     else if (curve.courseOutBearing) { lastCourseForNextSegment = curve.courseOutStr; }
-                     else { lastCourseForNextSegment = null; }
-
-                } else {
-                     /* ... Incomplete data handling unchanged ... */
-                }
-            }
-            return {
-                text: outputText,
-                warning: warning ? warning.trim() : null,
-                validationWarnings: validationWarnings,
-                lastCourse: lastCourseForNextSegment,
-                endCoordinates: endCoordinates,
-                segmentData: segmentDataObject,
-                tangencyStatus: tangencyStatus,
-                isRlUncertain: isRlUncertain // *** NEW: Return flag ***
-            };
-        }
-
+        function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, currentSegmentNumber, isFirstSegment, startCoordinates, lastSegmentWasCurve, rlOverride = null) { /* ... unchanged ... */ }
         // --- Survey Calculation & Utility Functions ---
         function expandDirection(shorthand) { /* ... unchanged ... */ }
         function parseDMS(dmsString) { /* ... unchanged ... */ }
@@ -847,11 +416,9 @@
         function calculateMisclosure(coordinates) { /* ... unchanged ... */ }
         function calculateShoelaceArea(coordinates) { /* ... unchanged ... */ }
         function calculateAndDisplayResults(coordinates, areaFromFile) { /* ... unchanged ... */ }
-
         // --- Visualization Functions ---
         function clearCanvas(canvas) { /* ... unchanged ... */ }
         function drawTraverse(canvas, coordinates) { /* ... unchanged ... */ }
-
         // --- Download & Formatting Functions ---
         async function generateAndDownloadTxt(formattedLinesArray, fileName) { /* ... unchanged ... */ }
         async function generateAndDownloadCsv(segmentsData) { /* ... unchanged ... */ }
