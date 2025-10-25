@@ -1,0 +1,1408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Legal Description Parser - Diamond Land Surveying</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <style>
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-image: url('assets/background-topo.jpg'); 
+            background-size: cover;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+            background-position: center center;
+        }
+        textarea::-webkit-scrollbar { width: 8px; }
+        textarea::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
+        textarea::-webkit-scrollbar-thumb { background: #888; border-radius: 10px; }
+        textarea::-webkit-scrollbar-thumb:hover { background: #555; }
+        .loader { 
+            border: 5px solid #f3f3f3; 
+            border-top: 5px solid #003366; 
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        #warningsArea ul { list-style-type: disc; margin-left: 20px; }
+        #warningsArea li { margin-bottom: 4px; }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        input:focus, select:focus, textarea:focus {
+            outline: 2px solid transparent;
+            outline-offset: 2px;
+            border-color: #003366 !important; 
+            box-shadow: 0 0 0 2px rgba(0, 51, 102, 0.3) !important;
+        }
+        #dropZone.dragover {
+            border-color: #003366; 
+            background-color: rgba(0, 51, 102, 0.05); 
+        }
+        .info-icon {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            line-height: 16px;
+            text-align: center;
+            border-radius: 50%;
+            background-color: #003366; 
+            color: white;
+            font-size: 10px;
+            font-weight: bold;
+            cursor: help;
+            margin-left: 4px;
+            position: relative; 
+        }
+        .tooltip {
+            visibility: hidden;
+            width: 220px;
+            background-color: #333;
+            color: #fff;
+            text-align: left;
+            border-radius: 6px;
+            padding: 8px;
+            position: absolute;
+            z-index: 10;
+            bottom: 125%; 
+            left: 50%;
+            margin-left: -110px; 
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-size: 0.75rem; 
+            line-height: 1.25; 
+        }
+        .tooltip::after { 
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #333 transparent transparent transparent;
+        }
+        .info-icon-container:hover .tooltip {
+            visibility: visible;
+            opacity: 1;
+        }
+        #traversePlot {
+            border: 1px solid #d1d5db; /* gray-300 */
+            border-radius: 0.5rem; /* rounded-lg */
+            background-color: #f9fafb; /* gray-50 */
+        }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700&display=swap" rel="stylesheet">
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+
+    <div class="bg-white p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-4xl">
+        <div class="text-center mb-10">
+            <div class="inline-block mb-3">
+                 <img src="https://www.diamondlandsurveying.com/wp-content/uploads/2019/04/diamond-logo-1.jpg" alt="Diamond Land Surveying Logo" class="h-20 w-auto mx-auto">
+            </div>
+            <h1 class="text-3xl font-bold text-gray-800" style="font-family: 'Montserrat', sans-serif;">Legal Description Parser</h1>
+            <p class="text-xs text-gray-500 mt-1">Powered by Gemini</p>
+        </div>
+
+        <div id="dropZone" class="mb-6 border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-[#003366] hover:bg-gray-50 transition-colors">
+            <p class="text-gray-500 pointer-events-none">Drag & Drop .txt file here or 
+                <button id="selectFileButton" class="text-[#003366] hover:text-[#002244] font-semibold underline focus:outline-none">select a file</button>
+            </p>
+            <input type="file" id="txtFile" accept=".txt" class="hidden">
+        </div>
+        
+        <div class="flex flex-col sm:flex-row sm:items-end sm:space-x-4 mb-6">
+            <div class="flex-1 mb-4 sm:mb-0">
+                <label for="fileEncoding" class="block text-xs font-medium text-gray-600 mb-1">
+                    Encoding:
+                    <span class="info-icon-container relative">
+                        <span class="info-icon">i</span>
+                        <span class="tooltip">Select file encoding. If you see strange characters (like ), try a different encoding or re-save your file as UTF-8.</span>
+                    </span>
+                </label>
+                <select id="fileEncoding" class="block w-full p-2 border border-gray-300 rounded-lg bg-gray-50 text-sm h-10">
+                    <option value="auto" selected>Auto (UTF-8)</option>
+                    <option value="windows-1252">ANSI (Win-1252)</option>
+                    <option value="ISO-8859-1">ANSI (ISO-8859-1)</option>
+                </select>
+            </div>
+            <div class="flex-1">
+                <label for="firstCurveRL" class="block text-xs font-medium text-gray-600 mb-1">
+                    1st Curve Dir:
+                    <span class="info-icon-container relative">
+                        <span class="info-icon">i</span>
+                        <span class="tooltip">If the very first segment in your file is a curve, specify its direction (Left/Right) here. Otherwise, 'Auto-detect' is recommended.</span>
+                    </span>
+                </label>
+                <select id="firstCurveRL" class="block w-full p-2 border border-gray-300 rounded-lg bg-gray-50 text-sm h-10">
+                    <option value="auto" selected>Auto-detect</option>
+                    <option value="L">Left</option>
+                    <option value="R">Right</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+            <button id="processButton" class="w-full bg-[#003366] hover:bg-[#002244] text-white font-semibold py-3 px-4 rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-[#003366] focus:ring-opacity-50 transition duration-150 ease-in-out">
+                Process File
+            </button>
+            <button id="downloadButton" class="w-full bg-gray-400 hover:bg-gray-500 text-white font-semibold py-3 px-4 rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-opacity-50 transition duration-150 ease-in-out" disabled>
+                Download Text File
+            </button>
+        </div>
+        
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+            <button id="downloadCsvButton" class="w-full bg-gray-400 hover:bg-gray-500 text-white font-semibold py-3 px-4 rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-opacity-50 transition duration-150 ease-in-out" disabled>
+                Download CSV
+            </button>
+            <button id="downloadKmlButton" class="w-full bg-gray-400 hover:bg-gray-500 text-white font-semibold py-3 px-4 rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-opacity-50 transition duration-150 ease-in-out" disabled>
+                Download KML
+            </button>
+        </div>
+
+
+        <div id="statusArea" class="mt-6 text-center">
+            <div id="loader" class="loader hidden"></div>
+            <p id="statusMessage" class="text-sm text-gray-600"></p>
+        </div>
+        
+        <div class="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
+            
+            <div>
+                <div>
+                    <label for="previewArea" class="block text-sm font-medium text-gray-700 mb-1">Parsed Output Preview:</label>
+                    <textarea id="previewArea" rows="12" class="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 text-sm text-gray-800" readonly placeholder="Parsed legal description will appear here..."></textarea>
+                </div>
+
+                <div id="warningsContainer" class="mt-6 hidden">
+                    <h3 class="text-md font-semibold text-orange-600 mb-2">Warnings:</h3>
+                    <div id="warningsArea" class="p-3 border border-orange-300 bg-orange-50 rounded-lg text-sm text-orange-700">
+                        <ul></ul>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <div>
+                    <label for="traversePlot" class="block text-sm font-medium text-gray-700 mb-1">Traverse Plot:</label>
+                    <canvas id="traversePlot" width="400" height="300" class="w-full h-auto aspect-[4/3]"></canvas>
+                </div>
+
+                <div id="resultsContainer" class="mt-6 hidden">
+                    <h3 class="text-md font-semibold text-gray-700 mb-2">Calculation Results:</h3>
+                    <div id="resultsArea" class="p-3 border border-gray-300 bg-gray-50 rounded-lg text-sm text-gray-800 space-y-2">
+                        </div>
+                </div>
+            </div>
+
+        </div> </div> <script>
+        // --- GLOBALS ---
+        let parsedOutputForDownload = [];
+        let segmentsDataForExport = []; // NEW: For CSV/KML
+        let coordinatesForPlotting = []; // NEW: For Plot/KML/Calc
+        let areaFromFile = null; // NEW: For comparison
+        let filePobCoords = null; // *** NEW *** {north: Y, east: X}
+
+        // --- CONSTANTS ---
+        const R2D = 180 / Math.PI;
+        const D2R = Math.PI / 180;
+        const GEOMETRY_TOLERANCE = 0.005; // feet
+        const TANGENCY_TOLERANCE_DEGREES = (5 / 3600); // 5 seconds
+        const NINETY_DEG_TOLERANCE = 1.0; // Tolerance for Tangent vs Radial check (degrees)
+        const DELTA_TOLERANCE = 1.0; // Tolerance for Radial In vs Radial Out check (degrees)
+
+
+        // --- DOM Event Listeners ---
+        document.addEventListener('DOMContentLoaded', () => {
+            // Get all DOM elements
+            const txtFileInput = document.getElementById('txtFile');
+            const fileEncodingSelect = document.getElementById('fileEncoding');
+            const processButton = document.getElementById('processButton');
+            const downloadButton = document.getElementById('downloadButton');
+            const downloadCsvButton = document.getElementById('downloadCsvButton'); // NEW
+            const downloadKmlButton = document.getElementById('downloadKmlButton'); // NEW
+            const statusMessage = document.getElementById('statusMessage');
+            const previewArea = document.getElementById('previewArea');
+            const loader = document.getElementById('loader');
+            const firstCurveRLSelect = document.getElementById('firstCurveRL');
+            const warningsContainer = document.getElementById('warningsContainer');
+            const warningsAreaUL = warningsContainer.querySelector('#warningsArea ul');
+            const dropZone = document.getElementById('dropZone');
+            const selectFileButton = document.getElementById('selectFileButton');
+            const resultsContainer = document.getElementById('resultsContainer'); // NEW
+            const resultsArea = document.getElementById('resultsArea'); // NEW
+            const traversePlotCanvas = document.getElementById('traversePlot'); // NEW
+
+            // --- Drag & Drop / File Input Listeners ---
+            selectFileButton.addEventListener('click', () => {
+                txtFileInput.click(); 
+            });
+
+            dropZone.addEventListener('click', (event) => {
+                if (event.target !== selectFileButton) {
+                    txtFileInput.click();
+                }
+            });
+
+            dropZone.addEventListener('dragover', (event) => {
+                event.preventDefault(); 
+                dropZone.classList.add('dragover');
+            });
+
+            dropZone.addEventListener('dragleave', (event) => {
+                dropZone.classList.remove('dragover');
+            });
+
+            dropZone.addEventListener('drop', (event) => {
+                event.preventDefault();
+                dropZone.classList.remove('dragover');
+                const files = event.dataTransfer.files;
+                if (files.length > 0) {
+                    if (files[0].name.endsWith('.txt')) {
+                        txtFileInput.files = files; 
+                        const changeEvent = new Event('change', { bubbles: true });
+                        txtFileInput.dispatchEvent(changeEvent);
+                        // processButton.click(); // Auto-process on drop
+                    } else {
+                        statusMessage.textContent = 'Please drop a .txt file.';
+                        alert('Invalid file type. Please drop a .txt file.');
+                    }
+                }
+            });
+            
+            txtFileInput.addEventListener('change', () => {
+                if (txtFileInput.files.length > 0) {
+                    statusMessage.textContent = `File selected: ${txtFileInput.files[0].name}`;
+                    // processButton.click(); // Optionally auto-process on select
+                }
+            });
+
+            // --- Main Process Button Listener ---
+            processButton.addEventListener('click', async () => {
+                // 1. Reset all outputs
+                previewArea.value = ''; 
+                parsedOutputForDownload = []; 
+                segmentsDataForExport = [];
+                coordinatesForPlotting = [[0, 0]]; // Start at POB [0,0]
+                areaFromFile = null;
+                filePobCoords = null; // *** NEW ***
+                
+                // Disable download buttons
+                downloadButton.disabled = true;
+                downloadCsvButton.disabled = true; // NEW
+                downloadKmlButton.disabled = true; // NEW
+                downloadButton.classList.replace('bg-[#003366]', 'bg-gray-400'); 
+                downloadButton.classList.replace('hover:bg-[#002244]', 'hover:bg-gray-500'); 
+                downloadCsvButton.classList.replace('bg-[#003366]', 'bg-gray-400'); // NEW
+                downloadCsvButton.classList.replace('hover:bg-[#002244]', 'hover:bg-gray-500'); // NEW
+                downloadKmlButton.classList.replace('bg-[#003366]', 'bg-gray-400'); // NEW
+                downloadKmlButton.classList.replace('hover:bg-[#002244]', 'hover:bg-gray-500'); // NEW
+
+                // Clear warnings and results
+                statusMessage.textContent = 'Initializing...';
+                warningsAreaUL.innerHTML = ''; 
+                warningsContainer.classList.add('hidden');
+                resultsArea.innerHTML = ''; // NEW
+                resultsContainer.classList.add('hidden'); // NEW
+                clearCanvas(traversePlotCanvas); // NEW
+
+                loader.classList.remove('hidden');
+
+                const file = txtFileInput.files[0];
+                const selectedEncoding = fileEncodingSelect.value === "auto" ? "UTF-8" : fileEncodingSelect.value;
+                const firstCurveRLOverride = firstCurveRLSelect.value;
+
+                if (!file) {
+                    statusMessage.textContent = 'Please select a .txt file.';
+                    loader.classList.add('hidden');
+                    return;
+                }
+
+                statusMessage.textContent = 'Reading file...';
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    try {
+                        statusMessage.textContent = 'Parsing legal description...';
+                        const rawText = event.target.result;
+                        
+                        // *** NEW: Parse POB Coordinates first ***
+                        filePobCoords = parsePobCoordinates(rawText);
+                        // *** END NEW ***
+
+                        // 2. Run the main parsing function
+                        const {
+                            formattedLines, 
+                            warnings, 
+                            areaSummaryLine, 
+                            segmentsData, 
+                            parsedAreaValue 
+                        } = parseLegalDescription(rawText, firstCurveRLOverride);
+                        
+                        // 3. Store results in globals
+                        parsedOutputForDownload = [...formattedLines]; 
+                        segmentsDataForExport = [...segmentsData];
+                        areaFromFile = parsedAreaValue;
+
+                        if (areaSummaryLine) {
+                            if (parsedOutputForDownload.length > 0 && parsedOutputForDownload[parsedOutputForDownload.length -1].trim() !== "") { 
+                                parsedOutputForDownload.push(""); 
+                            }
+                            parsedOutputForDownload.push(areaSummaryLine);
+                        }
+                        
+                        previewArea.value = parsedOutputForDownload.join('\n');
+                        
+                        // 4. Update UI (Buttons)
+                        if (parsedOutputForDownload.length > 0) { 
+                            downloadButton.disabled = false;
+                            downloadButton.classList.replace('bg-gray-400', 'bg-[#003366]'); 
+                            downloadButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]'); 
+                        }
+                        if (segmentsDataForExport.length > 0) {
+                            downloadCsvButton.disabled = false;
+                            downloadCsvButton.classList.replace('bg-gray-400', 'bg-[#003366]'); 
+                            downloadCsvButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]'); 
+                        }
+                         if (coordinatesForPlotting.length > 1) {
+                            downloadKmlButton.disabled = false;
+                            downloadKmlButton.classList.replace('bg-gray-400', 'bg-[#003366]'); 
+                            downloadKmlButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]'); 
+                        }
+                        
+                        // 5. Update UI (Warnings)
+                        if (!filePobCoords && rawText.includes("Point of Beginning")) { // Add POB warning if it looks like it should be there
+                            warnings.push("Could not parse 'Point of Beginning' coordinates in the file. Line endpoint validation skipped.");
+                        }
+                        if (warnings.length > 0) {
+                            warnings.forEach(warning => {
+                                const li = document.createElement('li');
+                                li.textContent = warning;
+                                warningsAreaUL.appendChild(li);
+                            });
+                            warningsContainer.classList.remove('hidden');
+                            statusMessage.textContent = 'Processing complete. Please review warnings.';
+                        } else if (parsedOutputForDownload.length > 0) {
+                           statusMessage.textContent = 'Processing complete. Ready to download.'; 
+                        } else {
+                           statusMessage.textContent = 'Processing complete. No data parsed.';
+                        }
+
+                        // 6. NEW: Run Calculations & Visualization
+                        if (coordinatesForPlotting.length > 1) {
+                            calculateAndDisplayResults(coordinatesForPlotting, areaFromFile);
+                            resultsContainer.classList.remove('hidden');
+                            drawTraverse(traversePlotCanvas, coordinatesForPlotting);
+                        }
+                        
+                    } catch (error) {
+                        console.error('Error processing file:', error);
+                        statusMessage.textContent = `Error: ${error.message}`;
+                        warningsAreaUL.innerHTML = `<li>${error.message}</li>`;
+                        warningsContainer.classList.remove('hidden');
+                    } finally {
+                        loader.classList.add('hidden');
+                    }
+                };
+                reader.onerror = () => {
+                    statusMessage.textContent = 'Error reading file.';
+                    loader.classList.add('hidden');
+                };
+                reader.readAsText(file, selectedEncoding); 
+            });
+
+            // --- Download Button Listeners ---
+            downloadButton.addEventListener('click', async () => {
+                if (parsedOutputForDownload.length === 0) {
+                    statusMessage.textContent = "No processed data to download.";
+                    return;
+                }
+                statusMessage.textContent = "Generating text file...";
+                try {
+                    await generateAndDownloadTxt(parsedOutputForDownload, "legal_description_parsed.txt");
+                    statusMessage.textContent = 'Text file downloaded successfully!';
+                } catch (error) {
+                    statusMessage.textContent = `Error downloading file: ${error.message}`;
+                }
+            });
+
+            // NEW: Download CSV
+            downloadCsvButton.addEventListener('click', async () => {
+                if (segmentsDataForExport.length === 0) {
+                    statusMessage.textContent = "No segment data to download.";
+                    return;
+                }
+                statusMessage.textContent = "Generating CSV file...";
+                try {
+                    await generateAndDownloadCsv(segmentsDataForExport);
+                    statusMessage.textContent = 'CSV file downloaded successfully!';
+                } catch (error) {
+                    statusMessage.textContent = `Error downloading CSV: ${error.message}`;
+                }
+            });
+
+            // NEW: Download KML
+            downloadKmlButton.addEventListener('click', async () => {
+                if (coordinatesForPlotting.length <= 1) {
+                    statusMessage.textContent = "No coordinate data to download.";
+                    return;
+                }
+                statusMessage.textContent = "Generating KML file...";
+                try {
+                    await generateAndDownloadKml(coordinatesForPlotting, segmentsDataForExport);
+                    statusMessage.textContent = 'KML file downloaded successfully!';
+                } catch (error) {
+                    statusMessage.textContent = `Error downloading KML: ${error.message}`;
+                }
+            });
+        });
+
+        // --- Core Parsing Logic ---
+
+        // *** NEW Function ***
+        function parsePobCoordinates(rawText) {
+            const lines = rawText.split('\n');
+            for (const line of lines) {
+                const trimmedLine = line.trim();
+                const pobMatch = trimmedLine.match(/Point\s+of\s+Beginning\s*:\s*North:\s*([\d\.]+)'?\s*East:\s*([\d\.]+)'?/i);
+                if (pobMatch) {
+                    const north = parseFloat(pobMatch[1]);
+                    const east = parseFloat(pobMatch[2]);
+                    if (!isNaN(north) && !isNaN(east)) {
+                        return { north: north, east: east };
+                    }
+                }
+            }
+            return null; // Not found or couldn't parse
+        }
+
+        function parseLegalDescription(rawText, firstCurveRLOverride) {
+            const allLinesFromFile = rawText.split('\n');
+            const formattedLines = [];
+            const warnings = [];
+            let segmentsData = []; // NEW
+            let currentSegmentData = [];
+            let segmentType = null; 
+            let lastSegmentCourseString = null; 
+            let segmentCounter = 0; 
+            let areaSummaryLine = null;
+            let parsedAreaValue = null;
+            let lastSegmentWasCurve = false;
+
+            // Start traverse at [0, 0]
+            let currentCoordinates = [0, 0]; 
+            // coordinatesForPlotting is global, already reset to [[0, 0]]
+
+            for (const line of allLinesFromFile) {
+                const trimmedLine = line.trim();
+                const segmentHeaderMatch = trimmedLine.match(/^Segment\s+#(\d+)\s*:\s*(Line|Curve)/i);
+                const areaMatchTest = trimmedLine.match(/Area:\s*([\d.,]+)\s*Sq\.\s*Ft\.?/i); 
+
+                if (segmentHeaderMatch) {
+                    if (segmentType && currentSegmentData.length > 0) {
+                        const result = processSegment(
+                            currentSegmentData, 
+                            segmentType, 
+                            lastSegmentCourseString, 
+                            firstCurveRLOverride, 
+                            segmentCounter, 
+                            formattedLines.length === 0,
+                            currentCoordinates, // Pass current *calculated* position
+                            lastSegmentWasCurve 
+                        ); 
+                        
+                        // Modify previous line if this is a curve 
+                        if (segmentType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) {
+                            let lastLine = formattedLines.pop();
+                            if (lastLine.endsWith('feet;')) { 
+                                if (result.tangencyStatus === 'non-tangent') {
+                                    lastLine = lastLine.replace(/feet;$/, 'feet to a point of non-tangent curvature;');
+                                } else {
+                                    lastLine = lastLine.replace(/feet;$/, 'feet to a point of curvature;');
+                                }
+                            }
+                            formattedLines.push(lastLine);
+                        }
+
+                        if (result.text) formattedLines.push(result.text);
+                        // Add validation warnings 
+                        if(result.validationWarnings && result.validationWarnings.length > 0) {
+                             warnings.push(...result.validationWarnings);
+                        }
+                        if (result.warning) warnings.push(result.warning); // Add parsing/logic warnings
+                        if (result.segmentData) segmentsData.push(result.segmentData); 
+                        
+                        // Update state for next loop
+                        if (result.lastCourse) lastSegmentCourseString = result.lastCourse;
+                        lastSegmentWasCurve = (segmentType.toLowerCase() === 'curve'); 
+                        if(result.endCoordinates) {
+                            currentCoordinates = result.endCoordinates; // Update position
+                            coordinatesForPlotting.push(currentCoordinates); 
+                        }
+                    }
+                    segmentCounter = parseInt(segmentHeaderMatch[1]); 
+                    segmentType = segmentHeaderMatch[2]; 
+                    currentSegmentData = []; 
+                    continue; 
+                } else if (areaMatchTest) { 
+                    if (segmentType && currentSegmentData.length > 0) {
+                        const result = processSegment(
+                            currentSegmentData, 
+                            segmentType, 
+                            lastSegmentCourseString, 
+                            firstCurveRLOverride, 
+                            segmentCounter, 
+                            formattedLines.length === 0,
+                            currentCoordinates,
+                            lastSegmentWasCurve
+                        );
+
+                        // Modify previous line if this is a curve
+                        if (segmentType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) {
+                            let lastLine = formattedLines.pop();
+                            if (lastLine.endsWith('feet;')) {
+                                if (result.tangencyStatus === 'non-tangent') {
+                                    lastLine = lastLine.replace(/feet;$/, 'feet to a point of non-tangent curvature;');
+                                } else {
+                                    lastLine = lastLine.replace(/feet;$/, 'feet to a point of curvature;');
+                                }
+                            }
+                            formattedLines.push(lastLine);
+                        }
+
+                        if (result.text) formattedLines.push(result.text);
+                        if(result.validationWarnings && result.validationWarnings.length > 0) {
+                             warnings.push(...result.validationWarnings);
+                        }
+                        if (result.warning) warnings.push(result.warning);
+                        if (result.segmentData) segmentsData.push(result.segmentData);
+                        if (result.lastCourse) lastSegmentCourseString = result.lastCourse;
+                        lastSegmentWasCurve = (segmentType.toLowerCase() === 'curve');
+                        if(result.endCoordinates) {
+                            currentCoordinates = result.endCoordinates;
+                            coordinatesForPlotting.push(currentCoordinates);
+                        }
+                    }
+                    segmentType = null; 
+                    currentSegmentData = []; 
+                }
+
+
+                if (segmentType && trimmedLine !== "") {
+                    currentSegmentData.push(trimmedLine);
+                }
+            }
+
+            // Process the very last segment
+            if (segmentType && currentSegmentData.length > 0) {
+                 const result = processSegment(
+                     currentSegmentData, 
+                     segmentType, 
+                     lastSegmentCourseString, 
+                     firstCurveRLOverride, 
+                     segmentCounter, 
+                     formattedLines.length === 0,
+                     currentCoordinates,
+                     lastSegmentWasCurve
+                 );
+                
+                // Modify previous line if this is a curve
+                if (segmentType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) {
+                    let lastLine = formattedLines.pop();
+                    if (lastLine.endsWith('feet;')) {
+                        if (result.tangencyStatus === 'non-tangent') {
+                            lastLine = lastLine.replace(/feet;$/, 'feet to a point of non-tangent curvature;');
+                        } else {
+                            lastLine = lastLine.replace(/feet;$/, 'feet to a point of curvature;');
+                        }
+                    }
+                    formattedLines.push(lastLine);
+                }
+
+                if (result.text) formattedLines.push(result.text);
+                if(result.validationWarnings && result.validationWarnings.length > 0) {
+                     warnings.push(...result.validationWarnings);
+                }
+                if (result.warning) warnings.push(result.warning);
+                if (result.segmentData) segmentsData.push(result.segmentData);
+                if(result.endCoordinates) {
+                    coordinatesForPlotting.push(result.endCoordinates);
+                }
+            }
+            
+            // Find and parse the Area line
+            for (const line of allLinesFromFile) {
+                const trimmedLine = line.trim();
+                const areaMatch = trimmedLine.match(/Area:\s*([\d.,]+)\s*Sq\.\s*Ft\.?/i); 
+                if (areaMatch) {
+                    try {
+                        const sqFtValueString = areaMatch[1].replace(/,/g, ''); 
+                        const sqFtValue = parseFloat(sqFtValueString);
+                        if (!isNaN(sqFtValue)) {
+                            parsedAreaValue = sqFtValue; // NEW
+                            const formattedSqFt = Math.round(sqFtValue).toLocaleString('en-US');
+                            const acres = sqFtValue / 43560;
+                            const formattedAcres = acres.toFixed(3);
+                            areaSummaryLine = `contains ${formattedSqFt} sq. ft. or ${formattedAcres} Acres`;
+                        } else {
+                            warnings.push(`Could not parse square footage value from Area data: "${areaMatch[0]}"`);
+                        }
+                    } catch (e) {
+                        warnings.push(`Error processing Area data "${areaMatch[0]}": ${e.message}`);
+                    }
+                    break; 
+                }
+            }
+            if (!areaSummaryLine && allLinesFromFile.some(line => /area:/i.test(line) && !warnings.some(w => w.toLowerCase().includes("area summary line was not generated")))) {
+                 warnings.push("Area summary line was not generated. Check input file for 'Area: ... Sq. Ft.' format.");
+            }
+            
+            return {formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue}; 
+        }
+
+        // *** NEW ***
+        function validateCurveData(curve, segmentContext) {
+            let validationWarnings = [];
+            if (curve.radius === undefined || curve.deltaDecimal === undefined) {
+                return validationWarnings; // Not enough data to validate
+            }
+
+            const deltaRad = curve.deltaDecimal * D2R;
+
+            // 1. Check Length
+            if (curve.length !== undefined) {
+                const calcLength = curve.radius * deltaRad;
+                if (Math.abs(curve.length - calcLength) > GEOMETRY_TOLERANCE) {
+                    validationWarnings.push(`Segment ${segmentContext}: File 'Length' (${curve.length.toFixed(3)}) does not match 'Length' calculated from R/D (${calcLength.toFixed(3)}).`);
+                }
+            }
+            
+            // 2. Check Chord Length
+            if (curve.chordLength !== undefined) {
+                const calcChord = 2 * curve.radius * Math.sin(deltaRad / 2);
+                if (Math.abs(curve.chordLength - calcChord) > GEOMETRY_TOLERANCE) {
+                    validationWarnings.push(`Segment ${segmentContext}: File 'Chord Length' (${curve.chordLength.toFixed(3)}) does not match 'Chord' calculated from R/D (${calcChord.toFixed(3)}).`);
+                }
+            }
+
+            // 3. Check Tangent Length
+            if (curve.tangent !== undefined) {
+                const calcTangent = curve.radius * Math.tan(deltaRad / 2);
+                 if (Math.abs(curve.tangent - calcTangent) > GEOMETRY_TOLERANCE) {
+                    validationWarnings.push(`Segment ${segmentContext}: File 'Tangent' (${curve.tangent.toFixed(3)}) does not match 'Tangent' calculated from R/D (${calcTangent.toFixed(3)}).`);
+                }
+            }
+
+            return validationWarnings;
+        }
+
+        // Normalize angle difference to be between -180 and 180
+        function normalizeAngleDifference(diff) {
+             if (isNaN(diff)) return diff; // Return NaN if input is NaN
+             while (diff <= -180) diff += 360;
+             while (diff > 180) diff -= 360;
+             return diff;
+        }
+
+        // *** NEW Function ***
+        function parseFileCoordinates(segmentData) {
+             for (const line of segmentData) {
+                 // Match North: YYY.YYY' East: XXX.XXX' (optional apostrophe)
+                 const coordMatch = line.match(/North:\s*([\d\.]+)'?\s*East:\s*([\d\.]+)'?/i);
+                 if (coordMatch) {
+                     const north = parseFloat(coordMatch[1]);
+                     const east = parseFloat(coordMatch[2]);
+                     if (!isNaN(north) && !isNaN(east)) {
+                        return { north: north, east: east };
+                     }
+                 }
+             }
+             return null; // Not found
+        }
+
+        function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, currentSegmentNumber, isFirstSegment, startCoordinates, lastSegmentWasCurve) {
+            let outputText = "";
+            let warning = null;
+            let validationWarnings = []; // *** NEW ***
+            let lastCourseForNextSegment = null; 
+            let endCoordinates = null; 
+            let segmentDataObject = { segment: currentSegmentNumber, type: type }; 
+            let tangencyStatus = null; 
+            const segmentContext = `(Segment #${currentSegmentNumber})`;
+            const [startX, startY] = startCoordinates; // These are calculated relative coords
+
+            if (type.toLowerCase() === 'line') {
+                const courseLengthLine = segmentData.find(l => l.toLowerCase().startsWith('course:'));
+                if (courseLengthLine) {
+                    const courseMatch = courseLengthLine.match(/Course:\s*([NSEW])\s*(\d{1,3})\s*[°\uFFFD]?\s*(\d{1,2})\s*['\u2019\u2018]?\s*([\d\.]+)\s*["\u201D\u201C]?\s*([NSEW])/i);
+                    const lengthMatch = courseLengthLine.match(/Length:\s*([\d\.]+)'?/i);
+
+                    if (courseMatch && lengthMatch) {
+                        const bearing = {
+                            dir1: courseMatch[1].toUpperCase(), deg: parseInt(courseMatch[2]), min: parseInt(courseMatch[3]), sec: parseFloat(courseMatch[4]), dir2: courseMatch[5].toUpperCase()
+                        };
+                        const length = parseFloat(lengthMatch[1]);
+                        const roundedSeconds = Math.round(bearing.sec);
+
+                        outputText = `thence ${expandDirection(bearing.dir1)} ${bearing.deg}°${String(bearing.min).padStart(2, '0')}'${String(roundedSeconds).padStart(2, '0')}" ${expandDirection(bearing.dir2)} ${length.toFixed(2)} feet;`;
+                        
+                        lastCourseForNextSegment = `${bearing.dir1} ${bearing.deg}°${bearing.min}'${bearing.sec}" ${bearing.dir2}`;
+                        segmentDataObject.course = lastCourseForNextSegment;
+                        segmentDataObject.length = length;
+
+                        const azimuth = bearingToAzimuth(bearing);
+                        if (azimuth !== null) {
+                            endCoordinates = calculateEndpoint(startX, startY, azimuth, length);
+
+                            // *** NEW: Validate Line Endpoint Coordinates ***
+                            const fileEndpointCoords = parseFileCoordinates(segmentData);
+                            if (filePobCoords && fileEndpointCoords && endCoordinates) {
+                                const fileRelativeX = fileEndpointCoords.east - filePobCoords.east;
+                                const fileRelativeY = fileEndpointCoords.north - filePobCoords.north;
+                                const calcX = endCoordinates[0];
+                                const calcY = endCoordinates[1];
+
+                                if (Math.abs(calcX - fileRelativeX) > GEOMETRY_TOLERANCE || Math.abs(calcY - fileRelativeY) > GEOMETRY_TOLERANCE) {
+                                    validationWarnings.push(`Segment ${segmentContext}: Calculated endpoint [${calcX.toFixed(3)}, ${calcY.toFixed(3)}] differs from file endpoint [${fileRelativeX.toFixed(3)}, ${fileRelativeY.toFixed(3)}] relative to POB.`);
+                                }
+                            } else if (filePobCoords && !fileEndpointCoords) {
+                                validationWarnings.push(`Segment ${segmentContext}: Could not parse North/East coordinates from file for validation.`);
+                            }
+                            // *** END NEW ***
+
+                        } else {
+                            warning = `Could not calculate azimuth for line ${segmentContext}. Coordinates may be incorrect.`;
+                        }
+
+                    } else {
+                         warning = `Malformed line segment data ${segmentContext} (missing Course or Length details): "${courseLengthLine}".`;
+                    }
+                } else {
+                    warning = `No course/length data found for line segment ${segmentContext}. Data: ${segmentData.join('; ')}.`;
+                }
+            } else if (type.toLowerCase() === 'curve') {
+                 let curve = { 
+                    courseInStr: null, courseInBearing: null, courseInAzimuth: null, 
+                    courseOutStr: null, courseOutBearing: null, courseOutAzimuth: null, 
+                    tangentInAzimuth: null, 
+                };
+                segmentDataObject.rl = "R/L"; // Default
+
+                segmentData.forEach(line => {
+                    let match;
+                    if ((match = line.match(/Length:\s*([\d\.]+)'?\s*Radius:\s*([\d\.]+)'?/i))) {
+                        curve.length = parseFloat(match[1]);
+                        curve.radius = parseFloat(match[2]);
+                    } else if ((match = line.match(/^Delta:\s*(\d{1,3})\s*[°\uFFFD]?\s*(\d{1,2})\s*['\u2019\u2018]?\s*([\d\.]+)\s*["\u201D\u201C]?/i))) { 
+                        curve.deltaDecimal = parseDMS(match[0].replace(/^Delta:\s*/i, ''));
+                        curve.deltaStr = match[0].replace(/^Delta:\s*/i, '').trim(); 
+                        if (curve.deltaDecimal === null && warning === null) { 
+                            warning = `Could not parse DMS Delta: "${match[0]}" ${segmentContext}.`;
+                        }
+                    } else if (!curve.deltaDecimal && (match = line.match(/Delta Angle:\s*([\d\.]+)\s*\(d\)/i))) { 
+                        curve.deltaDecimal = parseFloat(match[1]);
+                        curve.deltaStr = `${curve.deltaDecimal}°`; 
+                    } else if ((match = line.match(/Chord:\s*([\d\.]+)'?\s*Course:\s*([NSEW])\s*(\d{1,3})\s*[°\uFFFD]?\s*(\d{1,2})\s*['\u2019\u2018]?\s*([\d\.]+)\s*["\u201D\u201C]?\s*([NSEW])/i))) { 
+                        curve.chordLength = parseFloat(match[1]);
+                        curve.chordBearing = {
+                            dir1: match[2].toUpperCase(), deg: parseInt(match[3]), min: parseInt(match[4]), sec: parseFloat(match[5]), dir2: match[6].toUpperCase()
+                        };
+                        curve.chordCourseStr = `${match[2]} ${match[3]}°${match[4]}'${match[5]}" ${match[6]}`;
+                    } else if ((match = line.match(/Course In:\s*([NSEW\d\s°'"\uFFFD\u2019\u2018\u201D\u201C\.]+)/i))) { 
+                        curve.courseInStr = match[1].trim();
+                        curve.courseInBearing = parseBearing(curve.courseInStr);
+                        curve.courseInAzimuth = bearingToAzimuth(curve.courseInBearing); 
+                    } else if ((match = line.match(/Course Out:\s*([NSEW\d\s°'"\uFFFD\u2019\u2018\u201D\u201C\.]+)/i))) { 
+                        curve.courseOutStr = match[1].trim();
+                        curve.courseOutBearing = parseBearing(curve.courseOutStr);
+                        curve.courseOutAzimuth = bearingToAzimuth(curve.courseOutBearing); 
+                    } else if ((match = line.match(/Tangent:\s*([\d\.]+)/i))) { 
+                        curve.tangent = parseFloat(match[1]);
+                    }
+                });
+
+                // Store basic data for CSV
+                segmentDataObject.length = curve.length;
+                segmentDataObject.radius = curve.radius;
+                segmentDataObject.delta = curve.deltaStr;
+                segmentDataObject.chordLength = curve.chordLength;
+                segmentDataObject.chordCourse = curve.chordCourseStr;
+
+                if (curve.length !== undefined && curve.radius !== undefined && curve.deltaDecimal !== undefined && 
+                    curve.chordLength !== undefined && curve.chordBearing !== undefined) {
+                    
+                    validationWarnings = validateCurveData(curve, segmentContext); // Perform geometry check
+
+                    // Calculate endpoint using Chord Bearing and Length
+                    const chordAzimuth = bearingToAzimuth(curve.chordBearing);
+                    if (chordAzimuth !== null) {
+                        endCoordinates = calculateEndpoint(startX, startY, chordAzimuth, curve.chordLength);
+                    } else {
+                        if (warning === null) warning = "";
+                        warning += (warning ? " " : "") + `Could not calculate curve endpoint ${segmentContext}. Missing or invalid Chord data. Coordinates will be incorrect.`;
+                    }
+                    
+                    const dmsDelta = decimalToDMS(curve.deltaDecimal);
+                    let rl_display = "R/L"; 
+                    let rl_calc = null; 
+                    let nonTangentLabelText = ""; 
+                    let rlVerifyLabelText = ""; 
+                    let rlMethod1Result = null; // Result from deflection
+                    let rlMethod2Result = null; // Result from Tangent vs Radial
+                    let rlMethod3Result = null; // Result from Radial In vs Radial Out
+
+                    // --- Tangency Check ---
+                    tangencyStatus = 'tangent'; // Assume tangent unless proven otherwise
+                    let tangentInBearing = null;
+                    if (prevLineCourseStr) {
+                        tangentInBearing = parseBearing(prevLineCourseStr);
+                        curve.tangentInAzimuth = bearingToAzimuth(tangentInBearing);
+                    }
+
+                    if (curve.tangentInAzimuth !== null && curve.courseInAzimuth !== null) {
+                        const diff = Math.abs(curve.tangentInAzimuth - curve.courseInAzimuth);
+                        const isEffectivelyCollinear = (Math.abs(diff) <= TANGENCY_TOLERANCE_DEGREES) || 
+                                                     (Math.abs(diff - 180) <= TANGENCY_TOLERANCE_DEGREES) ||
+                                                     (Math.abs(diff - 360) <= TANGENCY_TOLERANCE_DEGREES);
+                        if (!isEffectivelyCollinear) {
+                            nonTangentLabelText = "(Non-Tangent)";
+                            tangencyStatus = 'non-tangent'; 
+                        }
+                    } else if (prevLineCourseStr && curve.courseInAzimuth === null) {
+                         tangencyStatus = 'inferred'; 
+                    } else if (lastSegmentWasCurve) {
+                        tangencyStatus = 'tangent'; // Assume compound
+                    } else if (!isFirstSegment) { // Only flag non-tangent if NOT the first segment
+                        tangencyStatus = 'non-tangent';
+                    } else {
+                         tangencyStatus = 'unknown'; // First segment, can't determine tangency yet
+                    }
+
+
+                    // --- R/L Detection Layered Logic ---
+                    if (curveRLOverride !== "auto" && isFirstSegment) { 
+                        rl_calc = curveRLOverride;
+                    } else {
+                        // 1. Deflection Method (Primary)
+                        if (curve.tangentInAzimuth !== null && chordAzimuth !== null) {
+                            let deflectionToChord = normalizeAngleDifference(chordAzimuth - curve.tangentInAzimuth);
+                            const deltaHalf = curve.deltaDecimal / 2;
+                            if (Math.abs(Math.abs(deflectionToChord) - deltaHalf) < 2.5) { 
+                                rlMethod1Result = deflectionToChord > 0 ? "R" : "L";
+                                if (tangencyStatus === 'inferred') tangencyStatus = 'tangent'; 
+                            } else {
+                                if (tangencyStatus !== 'non-tangent') {
+                                    nonTangentLabelText = "(Non-Tangent)"; // Deflection mismatch implies non-tangency
+                                    tangencyStatus = 'non-tangent'; 
+                                }
+                                rlMethod1Result = null; // Uncertain
+                            }
+                        }
+
+                        // 2. Tangent vs Radial In Method (Secondary/Cross-check)
+                        if (curve.tangentInAzimuth !== null && curve.courseInAzimuth !== null) {
+                            let tanRadDiff = normalizeAngleDifference(curve.courseInAzimuth - curve.tangentInAzimuth);
+                            if (Math.abs(tanRadDiff - 90) < NINETY_DEG_TOLERANCE) rlMethod2Result = 'L';
+                            else if (Math.abs(tanRadDiff + 90) < NINETY_DEG_TOLERANCE || Math.abs(tanRadDiff - 270) < NINETY_DEG_TOLERANCE) rlMethod2Result = 'R';
+                            else { // Angle isn't close to +/- 90, likely non-tangent
+                                if(tangencyStatus === 'tangent' || tangencyStatus === 'inferred') {
+                                     nonTangentLabelText = "(Non-Tangent)";
+                                     tangencyStatus = 'non-tangent';
+                                }
+                                rlMethod2Result = null; 
+                            }
+                        }
+                        
+                        // 3. Radial In vs Radial Out Method (Tertiary/Fallback)
+                        if (curve.courseInAzimuth !== null && curve.courseOutAzimuth !== null) {
+                             let radInOutDiff = normalizeAngleDifference(curve.courseOutAzimuth - curve.courseInAzimuth);
+                             if (Math.abs(radInOutDiff - curve.deltaDecimal) < DELTA_TOLERANCE) rlMethod3Result = 'R';
+                             else if (Math.abs(radInOutDiff + curve.deltaDecimal) < DELTA_TOLERANCE) rlMethod3Result = 'L';
+                             else rlMethod3Result = null; 
+                        }
+
+                        // 4. Consolidate R/L Results
+                        let conflicting = false;
+                        if (rlMethod1Result && rlMethod2Result && rlMethod1Result !== rlMethod2Result) conflicting = true;
+                        if (rlMethod1Result && rlMethod3Result && rlMethod1Result !== rlMethod3Result) conflicting = true;
+                        if (rlMethod2Result && rlMethod3Result && rlMethod2Result !== rlMethod3Result) conflicting = true;
+
+                        if (conflicting) {
+                            rl_calc = null; // Conflicting results, force verify
+                            if (warning === null) warning = "";
+                            warning += (warning ? " " : "") + `Conflicting R/L results ${segmentContext}. M1:${rlMethod1Result}, M2:${rlMethod2Result}, M3:${rlMethod3Result}. Please verify.`;
+                        } else {
+                            // Prioritize results: Deflection > Tangent/Radial > Radial In/Out
+                            rl_calc = rlMethod1Result || rlMethod2Result || rlMethod3Result;
+                        }
+
+                        // Final R/L assignment and warnings
+                        if (rl_calc) {
+                            rl_display = rl_calc === 'R' ? 'Right' : 'Left';
+                        } else {
+                            rl_calc = null;
+                            rl_display = "R/L";
+                            rlVerifyLabelText = "(R/L Verify)";
+                            if (warning === null) warning = "";
+                             warning += (warning ? " " : "") + `Curve R/L ${segmentContext} could not be determined automatically.`;
+                        }
+                    } // End if not override
+                    
+                    segmentDataObject.rl = rl_calc || "R/L";
+
+                    // --- Text Output ---
+                    let prefixOutput = "";
+                    if (tangencyStatus === 'non-tangent' && nonTangentLabelText) {
+                         prefixOutput += nonTangentLabelText + " ";
+                    }
+                    if (rlVerifyLabelText) prefixOutput += rlVerifyLabelText + " ";
+
+                    const roundedChordSeconds = Math.round(curve.chordBearing.sec);
+                    outputText = `${prefixOutput.trim()} thence ${curve.length.toFixed(2)} feet along the arc of a ${curve.radius.toFixed(2)} foot radius curve to the ${rl_display}, through a central angle of ${formatDMS(dmsDelta)}, with a long chord of ${expandDirection(curve.chordBearing.dir1)} ${curve.chordBearing.deg}°${String(curve.chordBearing.min).padStart(2,'0')}'${String(roundedChordSeconds).padStart(2,'0')}" ${expandDirection(curve.chordBearing.dir2)} ${curve.chordLength.toFixed(2)} feet;`;
+                    
+                    // --- Next Tangent ---
+                    if (tangencyStatus === 'tangent' && rl_calc && curve.tangentInAzimuth !== null) {
+                        const tangentOutAzimuth = (curve.tangentInAzimuth + (rl_calc === 'R' ? curve.deltaDecimal : -curve.deltaDecimal) + 360) % 360;
+                        const tangentOutBearing = azimuthToBearing(tangentOutAzimuth);
+                        if (tangentOutBearing) {
+                            lastCourseForNextSegment = `${tangentOutBearing.dir1} ${tangentOutBearing.deg}°${tangentOutBearing.min}'${tangentOutBearing.sec.toFixed(0)}" ${tangentOutBearing.dir2}`;
+                        } else {
+                            lastCourseForNextSegment = null; 
+                        }
+                    } else if (curve.courseOutBearing) {
+                        lastCourseForNextSegment = curve.courseOutStr;
+                    } else {
+                        lastCourseForNextSegment = null; 
+                    }
+
+                } else {
+                    let missingFields = [];
+                    if (curve.length === undefined) missingFields.push("Length");
+                    if (curve.radius === undefined) missingFields.push("Radius");
+                    if (curve.deltaDecimal === undefined) missingFields.push("Delta Angle (decimal or DMS)");
+                    if (curve.chordLength === undefined) missingFields.push("Chord Length");
+                    if (curve.chordBearing === undefined) missingFields.push("Chord Course");
+                    if (warning === null) warning = ""; 
+                    warning += (warning ? " " : "") + `Incomplete curve data ${segmentContext}. Missing: ${missingFields.join(', ')}. Original data: ${segmentData.join('; ')}.`;
+                }
+            }
+            return { 
+                text: outputText, 
+                warning: warning ? warning.trim() : null, 
+                validationWarnings: validationWarnings, // *** NEW ***
+                lastCourse: lastCourseForNextSegment,
+                endCoordinates: endCoordinates, 
+                segmentData: segmentDataObject, 
+                tangencyStatus: tangencyStatus 
+            };
+        }
+
+        // --- Survey Calculation & Utility Functions ---
+
+        function expandDirection(shorthand) {
+            const map = { 'N': 'North', 'S': 'South', 'E': 'East', 'W': 'West' };
+            return map[shorthand] || shorthand;
+        }
+        
+        function parseDMS(dmsString) {
+            if (!dmsString) return null;
+            const match = dmsString.match(/(\d{1,3})\s*[°\uFFFD]?\s*(\d{1,2})\s*['\u2019\u2018]?\s*([\d\.]+)\s*["\u201D\u201C]?/i);
+            if (match) {
+                const d = parseInt(match[1]);
+                const m = parseInt(match[2]);
+                const s = parseFloat(match[3]);
+                if (!isNaN(d) && !isNaN(m) && !isNaN(s)) {
+                    return d + m / 60 + s / 3600;
+                }
+            }
+            console.warn("Failed to parse DMS string:", dmsString);
+            return null; 
+        }
+
+
+        function parseBearing(bearingString) {
+            if (!bearingString) return null;
+            const match = bearingString.match(/([NSEW])\s*(\d{1,3})\s*[°\uFFFD]?\s*(\d{1,2})\s*['\u2019\u2018]?\s*([\d\.]+)\s*["\u201D\u201C]?\s*([NSEW])/i);
+            if (!match) {
+                const cardinalMatch = bearingString.match(/^\s*([NSEW])\s*$/i);
+                if (cardinalMatch) {
+                    return { dir1: cardinalMatch[1].toUpperCase(), deg: 0, min: 0, sec: 0, dir2: '' };
+                }
+                return null;
+            }
+            return {
+                dir1: match[1].toUpperCase(), deg: parseInt(match[2]), min: parseInt(match[3]), sec: parseFloat(match[4]), dir2: match[5].toUpperCase(),
+            };
+        }
+        
+        function bearingToAzimuth(bearing) {
+             if (!bearing) return null;
+             // Ensure sec is a number, default to 0 if missing/NaN
+             const sec = (typeof bearing.sec === 'number' && !isNaN(bearing.sec)) ? bearing.sec : 0;
+             const angle = bearing.deg + bearing.min / 60 + sec / 3600;
+
+             if (bearing.dir1 === 'N' && bearing.dir2 === 'E') return angle;
+             if (bearing.dir1 === 'S' && bearing.dir2 === 'E') return 180 - angle;
+             if (bearing.dir1 === 'S' && bearing.dir2 === 'W') return 180 + angle;
+             if (bearing.dir1 === 'N' && bearing.dir2 === 'W') return 360 - angle;
+             // Handle cardinal directions (dir2 is empty or undefined)
+             if (bearing.dir1 === 'N' && !bearing.dir2) return 0;
+             if (bearing.dir1 === 'E' && !bearing.dir2) return 90;
+             if (bearing.dir1 === 'S' && !bearing.dir2) return 180;
+             if (bearing.dir1 === 'W' && !bearing.dir2) return 270;
+             console.warn("Could not convert bearing to azimuth:", bearing); // Log unexpected cases
+             return null;
+        }
+
+
+        // Convert Azimuth back to Bearing
+        function azimuthToBearing(azimuth) {
+            if (azimuth === null || isNaN(azimuth)) return null;
+             azimuth = (azimuth % 360 + 360) % 360; // Normalize
+
+            let dms = decimalToDMS(azimuth);
+            
+            // Use a small tolerance for cardinal checks
+            const epsilon = 1e-9; 
+            if (Math.abs(azimuth - 0) < epsilon || Math.abs(azimuth - 360) < epsilon) return { dir1: 'N', deg: 0, min: 0, sec: 0, dir2: '', s_precise: 0 };
+            if (Math.abs(azimuth - 90) < epsilon) return { dir1: 'E', deg: 0, min: 0, sec: 0, dir2: '', s_precise: 0 };
+            if (Math.abs(azimuth - 180) < epsilon) return { dir1: 'S', deg: 0, min: 0, sec: 0, dir2: '', s_precise: 0 };
+            if (Math.abs(azimuth - 270) < epsilon) return { dir1: 'W', deg: 0, min: 0, sec: 0, dir2: '', s_precise: 0 };
+
+            if (azimuth > 0 && azimuth < 90) {
+                dms = decimalToDMS(azimuth);
+                return { dir1: 'N', deg: dms.d, min: dms.m, sec: dms.s_precise, dir2: 'E' };
+            } else if (azimuth > 90 && azimuth < 180) {
+                dms = decimalToDMS(180 - azimuth);
+                return { dir1: 'S', deg: dms.d, min: dms.m, sec: dms.s_precise, dir2: 'E' };
+            } else if (azimuth > 180 && azimuth < 270) {
+                dms = decimalToDMS(azimuth - 180);
+                return { dir1: 'S', deg: dms.d, min: dms.m, sec: dms.s_precise, dir2: 'W' };
+            } else if (azimuth > 270 && azimuth < 360) {
+                dms = decimalToDMS(360 - azimuth);
+                return { dir1: 'N', deg: dms.d, min: dms.m, sec: dms.s_precise, dir2: 'W' };
+            } 
+            console.warn("Could not convert azimuth to bearing:", azimuth); // Log unexpected cases
+            return null; 
+        }
+
+
+        function decimalToDMS(decimalDegrees) {
+            const absDegrees = Math.abs(decimalDegrees);
+            const d = Math.floor(absDegrees);
+            const mDecimal = (absDegrees - d) * 60;
+            const m = Math.floor(mDecimal);
+            const sDecimal = (mDecimal - m) * 60;
+            const s_precise = sDecimal; // Keep full precision
+            
+            // Rounding logic for display seconds
+            let s_rounded = Math.round(sDecimal * 100) / 100;
+             if (s_rounded >= 59.995) { 
+                s_rounded = 0;
+                let newM = m + 1;
+                if (newM === 60) {
+                    newM = 0;
+                    return { d: d + 1, m: newM, s: s_rounded, s_precise: s_precise };
+                }
+                return { d, m: newM, s: s_rounded, s_precise: s_precise };
+            }
+            return { d, m, s: s_rounded, s_precise: s_precise };
+        }
+
+        function formatDMS(dms) {
+            // Use the rounded 's' for display
+            const formattedSeconds = dms.s % 1 === 0 ? String(Math.round(dms.s)).padStart(2, '0') : dms.s.toFixed(2).padStart(5, '0');
+            return `${dms.d}°${String(dms.m).padStart(2, '0')}'${formattedSeconds}"`;
+        }
+
+        // Calculate X, Y for a line
+        function calculateEndpoint(startX, startY, azimuthDegrees, length) {
+            const azimuthRadians = azimuthDegrees * D2R;
+            const deltaY = length * Math.cos(azimuthRadians); // North
+            const deltaX = length * Math.sin(azimuthRadians); // East
+            return [startX + deltaX, startY + deltaY];
+        }
+
+        // Calculate Misclosure
+        function calculateMisclosure(coordinates) {
+            if (coordinates.length < 2) return null;
+            const startPoint = coordinates[0];
+            const endPoint = coordinates[coordinates.length - 1];
+            
+            const deltaX = endPoint[0] - startPoint[0];
+            const deltaY = endPoint[1] - startPoint[1];
+            
+            const misclosureDist = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+            
+            let totalPerimeter = 0;
+            for (let i = 0; i < coordinates.length - 1; i++) {
+                const p1 = coordinates[i];
+                const p2 = coordinates[i+1];
+                totalPerimeter += Math.sqrt(Math.pow(p2[0] - p1[0], 2) + Math.pow(p2[1] - p1[1], 2));
+            }
+            
+            if (misclosureDist < 1e-9 || totalPerimeter === 0) { // Check for near-zero or zero
+                return { misclosureDist: 0, ratio: Infinity, totalPerimeter: totalPerimeter };
+            }
+            
+            const ratio = totalPerimeter / misclosureDist;
+            return { misclosureDist, ratio, totalPerimeter };
+        }
+
+        // Calculate Area
+        function calculateShoelaceArea(coordinates) {
+            let area = 0;
+            let n = coordinates.length;
+            if (n < 3) return 0;
+            
+            // Ensure polygon is closed for calculation
+            let coords = [...coordinates];
+            const start = coords[0];
+            const end = coords[n-1];
+            if (Math.abs(start[0] - end[0]) > 1e-9 || Math.abs(start[1] - end[1]) > 1e-9) { // Use tolerance
+                coords.push(start);
+                n = coords.length;
+            }
+
+            for (let i = 0; i < n - 1; i++) {
+                area += (coords[i][0] * coords[i+1][1]) - (coords[i+1][0] * coords[i][1]);
+            }
+            
+            return Math.abs(area / 2);
+        }
+
+        // Display Calculation Results
+        function calculateAndDisplayResults(coordinates, areaFromFile) {
+            const resultsArea = document.getElementById('resultsArea');
+            resultsArea.innerHTML = ''; // Clear old results
+
+            // 1. Misclosure
+            const misclosure = calculateMisclosure(coordinates);
+            if (misclosure) {
+                const misclosureEl = document.createElement('p');
+                misclosureEl.innerHTML = `<strong>Misclosure:</strong> ${misclosure.misclosureDist.toFixed(4)} feet`;
+                resultsArea.appendChild(misclosureEl);
+
+                const perimeterEl = document.createElement('p');
+                perimeterEl.innerHTML = `<strong>Perimeter:</strong> ${misclosure.totalPerimeter.toFixed(2)} feet`;
+                resultsArea.appendChild(perimeterEl);
+                
+                const ratioEl = document.createElement('p');
+                const ratioVal = isFinite(misclosure.ratio) ? `1 in ${Math.round(misclosure.ratio).toLocaleString('en-US')}` : 'Perfect Closure';
+                ratioEl.innerHTML = `<strong>Precision:</strong> ${ratioVal}`;
+                resultsArea.appendChild(ratioEl);
+            }
+
+            // 2. Area
+            const calculatedArea = calculateShoelaceArea(coordinates);
+            const calculatedAreaEl = document.createElement('p');
+            calculatedAreaEl.innerHTML = `<strong>Calculated Area:</strong> ${Math.round(calculatedArea).toLocaleString('en-US')} sq. ft.`;
+            resultsArea.appendChild(calculatedAreaEl);
+
+            // 3. Area Comparison
+            if (areaFromFile !== null) {
+                const diff = calculatedArea - areaFromFile;
+                const diffPercent = (areaFromFile !== 0) ? (diff / areaFromFile) * 100 : 0; // Avoid division by zero
+
+                const comparisonEl = document.createElement('p');
+                comparisonEl.innerHTML = `<strong>Area vs. File:</strong> ${diff.toFixed(2)} sq. ft. (${diffPercent.toFixed(4)}%) difference`;
+                
+                if (Math.abs(diffPercent) > 0.01) { // 0.01% tolerance
+                    comparisonEl.classList.add('text-orange-600');
+                } else {
+                    comparisonEl.classList.add('text-green-600');
+                }
+                resultsArea.appendChild(comparisonEl);
+            }
+        }
+
+        // --- Visualization Functions ---
+
+        function clearCanvas(canvas) {
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function drawTraverse(canvas, coordinates) {
+            if (coordinates.length < 2) return;
+            const ctx = canvas.getContext('2d');
+            clearCanvas(canvas);
+
+            // 1. Find bounds
+            let minX = coordinates[0][0], maxX = coordinates[0][0];
+            let minY = coordinates[0][1], maxY = coordinates[0][1];
+            
+            for (const [x, y] of coordinates) {
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+            }
+
+            // 2. Determine scale and padding
+            const padding = 20;
+            const plotWidth = canvas.width - 2 * padding;
+            const plotHeight = canvas.height - 2 * padding;
+            const dataWidth = maxX - minX;
+            const dataHeight = maxY - minY;
+
+            if (dataWidth === 0 && dataHeight === 0) {
+                 // Single point, draw a dot
+                ctx.fillStyle = '#003366';
+                ctx.beginPath();
+                ctx.arc(canvas.width / 2, canvas.height / 2, 3, 0, 2 * Math.PI);
+                ctx.fill();
+                return;
+            }
+            // Ensure non-zero dimensions for scaling
+            const effectiveDataWidth = dataWidth === 0 ? 1 : dataWidth;
+            const effectiveDataHeight = dataHeight === 0 ? 1 : dataHeight;
+
+            const scaleX = plotWidth / effectiveDataWidth;
+            const scaleY = plotHeight / effectiveDataHeight;
+            const scale = Math.min(scaleX, scaleY);
+
+            // 3. Create transform function
+            // We flip Y because canvas (0,0) is top-left, but survey (0,0) is bottom-left
+            const transform = (x, y) => {
+                const tx = padding + (x - minX) * scale;
+                const ty = padding + (maxY - y) * scale; // Flip Y-axis
+                return [tx, ty];
+            };
+
+            // 4. Draw segments
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            
+            const [startX, startY] = transform(coordinates[0][0], coordinates[0][1]);
+            ctx.moveTo(startX, startY);
+            
+            for (let i = 1; i < coordinates.length; i++) {
+                const [x, y] = transform(coordinates[i][0], coordinates[i][1]);
+                ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            // 5. Draw POB and POE
+            ctx.fillStyle = 'green'; // POB
+            ctx.beginPath();
+            ctx.arc(startX, startY, 4, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            ctx.fillStyle = 'red'; // POE
+            const [endX, endY] = transform(coordinates[coordinates.length - 1][0], coordinates[coordinates.length - 1][1]);
+            ctx.beginPath();
+            ctx.arc(endX, endY, 4, 0, 2 * Math.PI);
+            ctx.fill();
+        }
+
+        // --- Download & Formatting Functions ---
+
+        async function generateAndDownloadTxt(formattedLinesArray, fileName) { 
+            try {
+                const textContent = formattedLinesArray.join('\n');
+                const blob = new Blob([textContent], { type: "text/plain;charset=utf-8" }); 
+                saveAs(blob, fileName); 
+            } catch (error) {
+                console.error("Error generating TXT file:", error);
+                throw new Error('Error generating text file.'); 
+            }
+        }
+
+        // NEW: Download CSV
+        async function generateAndDownloadCsv(segmentsData) {
+            try {
+                const headers = [
+                    "Segment", "Type", "Course", "Length", 
+                    "Radius", "Delta", "Chord Course", "Chord Length", "R/L"
+                ];
+                let csvContent = headers.join(',') + '\n';
+                
+                segmentsData.forEach(seg => {
+                    const row = [
+                        seg.segment || '',
+                        seg.type || '',
+                        `"${seg.course || ''}"`,
+                        seg.length || '',
+                        seg.radius || '',
+                        `"${seg.delta || ''}"`,
+                        `"${seg.chordCourse || ''}"`,
+                        seg.chordLength || '',
+                        seg.rl || ''
+                    ];
+                    csvContent += row.join(',') + '\n';
+                });
+                
+                const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" }); 
+                saveAs(blob, "legal_description_segments.csv");
+            } catch (error) {
+                console.error("Error generating CSV file:", error);
+                throw new Error('Error generating CSV file.');
+            }
+        }
+
+        // NEW: Download KML
+        async function generateAndDownloadKml(coordinates, segmentsData) {
+            try {
+                // KML uses Lon, Lat, Alt. We are using X, Y, Z.
+                // We will treat X as Lon and Y as Lat for plotting.
+                let kmlCoordinates = coordinates.map(c => `${c[0]},${c[1]},0`).join(' ');
+                
+                let description = segmentsData.map(seg => {
+                    if (seg.type.toLowerCase() === 'line') {
+                        return `Seg ${seg.segment}: ${seg.type} - ${seg.course}, ${seg.length}'`;
+                    } else {
+                        return `Seg ${seg.segment}: ${seg.type} - L:${seg.length}', R:${seg.radius}', D:${seg.delta}`;
+                    }
+                }).join('\n');
+
+                const kmlContent = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Legal Description Plot</name>
+    <Style id="traverseStyle">
+      <LineStyle>
+        <color>ff003366</color> <width>2</width>
+      </LineStyle>
+      <PolyStyle>
+        <color>80003366</color> <fill>1</fill>
+        <outline>1</outline>
+      </PolyStyle>
+    </Style>
+    <Placemark>
+      <name>Parsed Traverse</name>
+      <description><![CDATA[${description.replace(/\n/g, '<br>')}]]></description>
+      <styleUrl>#traverseStyle</styleUrl>
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>${kmlCoordinates}</coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+  </Document>
+</kml>`;
+                
+                const blob = new Blob([kmlContent], { type: "application/vnd.google-earth.kml+xml;charset=utf-8" }); 
+                saveAs(blob, "legal_description_plot.kml");
+            } catch (error) {
+                console.error("Error generating KML file:", error);
+                throw new Error('Error generating KML file.');
+            }
+        }
+
+    </script>
+</body>
+</html>
