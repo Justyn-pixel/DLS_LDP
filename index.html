@@ -256,8 +256,7 @@
              txtFileInput.addEventListener('change', () => {
                  if (txtFileInput.files.length > 0) {
                      statusMessage.textContent = `File selected: ${txtFileInput.files[0].name}`;
-                     // Optionally auto-process on select:
-                     // processButton.click();
+                     // Optionally auto-process on select: processButton.click();
                  }
              });
 
@@ -356,7 +355,8 @@
                  catch (error) { statusMessage.textContent = `Error downloading KML: ${error.message}`; }
              });
         // *** End of DOMContentLoaded ***
-        });
+        }); // <-- ** THE CORRECTED CLOSING TAG **
+
 
         // --- Central Processing Function ---
         function processFileData(firstCurveRLOverride, userRlOverrides = {}) {
@@ -507,7 +507,7 @@
                     if (segmentType && currentSegmentData.length > 0) {
                          const rlOverride = userRlOverrides[segmentCounter] || null;
                         const result = processSegment(currentSegmentData, segmentType, lastSegmentCourseString, firstCurveRLOverride, segmentCounter, formattedLines.length === 0, currentCoordinates, lastSegmentWasCurve, rlOverride);
-                        if (segmentType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) { /* modify line */ let l=formattedLines.pop();if(l.endsWith('feet;')){l=l.replace(/feet;$/,result.tangencyStatus==='non-tangent'?'feet to a point of non-tangent curvature;':'feet to a point of curvature;');}formattedLines.push(l); }
+                        if (segmentType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) { let l=formattedLines.pop();if(l.endsWith('feet;')){l=l.replace(/feet;$/,result.tangencyStatus==='non-tangent'?'feet to a point of non-tangent curvature;':'feet to a point of curvature;');}formattedLines.push(l); }
                         if (result.text) formattedLines.push(result.text);
                         if(result.validationWarnings?.length > 0) warnings.push(...result.validationWarnings);
                         if (result.warning) warnings.push(result.warning);
@@ -522,7 +522,7 @@
                      if (segmentType && currentSegmentData.length > 0) {
                           const rlOverride = userRlOverrides[segmentCounter] || null;
                           const result = processSegment(currentSegmentData, segmentType, lastSegmentCourseString, firstCurveRLOverride, segmentCounter, formattedLines.length === 0, currentCoordinates, lastSegmentWasCurve, rlOverride);
-                          if (segmentType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) { /* modify line */ let l=formattedLines.pop();if(l.endsWith('feet;')){l=l.replace(/feet;$/,result.tangencyStatus==='non-tangent'?'feet to a point of non-tangent curvature;':'feet to a point of curvature;');}formattedLines.push(l); }
+                          if (segmentType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) { let l=formattedLines.pop();if(l.endsWith('feet;')){l=l.replace(/feet;$/,result.tangencyStatus==='non-tangent'?'feet to a point of non-tangent curvature;':'feet to a point of curvature;');}formattedLines.push(l); }
                           if (result.text) formattedLines.push(result.text);
                           if(result.validationWarnings?.length > 0) warnings.push(...result.validationWarnings);
                           if (result.warning) warnings.push(result.warning);
@@ -540,7 +540,7 @@
             if (segmentType && currentSegmentData.length > 0) {
                  const rlOverride = userRlOverrides[segmentCounter] || null;
                  const result = processSegment(currentSegmentData, segmentType, lastSegmentCourseString, firstCurveRLOverride, segmentCounter, formattedLines.length === 0, currentCoordinates, lastSegmentWasCurve, rlOverride);
-                  if (segmentType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) { /* modify line */ let l=formattedLines.pop();if(l.endsWith('feet;')){l=l.replace(/feet;$/,result.tangencyStatus==='non-tangent'?'feet to a point of non-tangent curvature;':'feet to a point of curvature;');}formattedLines.push(l); }
+                  if (segmentType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) { let l=formattedLines.pop();if(l.endsWith('feet;')){l=l.replace(/feet;$/,result.tangencyStatus==='non-tangent'?'feet to a point of non-tangent curvature;':'feet to a point of curvature;');}formattedLines.push(l); }
                   if (result.text) formattedLines.push(result.text);
                   if(result.validationWarnings?.length > 0) warnings.push(...result.validationWarnings);
                   if (result.warning) warnings.push(result.warning);
@@ -575,7 +575,8 @@
             if (type.toLowerCase() === 'line') {
                 const cLine=segmentData.find(l=>l.toLowerCase().startsWith('course:')); if(cLine){const cM=cLine.match(/Course:\s*([NSEW])\s*(\d{1,3})\s*[°\uFFFD]?\s*(\d{1,2})\s*['\u2019\u2018]?\s*([\d\.]+)\s*["\u201D\u201C]?\s*([NSEW])/i),lM=cLine.match(/Length:\s*([\d\.]+)'?/i); if(cM&&lM){const b={dir1:cM[1].toUpperCase(),deg:parseInt(cM[2]),min:parseInt(cM[3]),sec:parseFloat(cM[4]),dir2:cM[5].toUpperCase()},l=parseFloat(lM[1]),rS=Math.round(b.sec); outputText=`thence ${expandDirection(b.dir1)} ${b.deg}°${String(b.min).padStart(2,'0')}'${String(rS).padStart(2,'0')}" ${expandDirection(b.dir2)} ${l.toFixed(2)} feet;`; lastCourseForNextSegment=`${b.dir1} ${b.deg}°${b.min}'${b.sec}" ${b.dir2}`; segmentDataObject.course=lastCourseForNextSegment; segmentDataObject.length=l; const az=bearingToAzimuth(b); if(az!==null){endCoordinates=calculateEndpoint(startX,startY,az,l); const fEC=parseFileCoordinates(segmentData); if(filePobCoords&&fEC&&endCoordinates){const fRX=fEC.east-filePobCoords.east,fRY=fEC.north-filePobCoords.north,cX=endCoordinates[0],cY=endCoordinates[1]; if(Math.abs(cX-fRX)>GEOMETRY_TOLERANCE||Math.abs(cY-fRY)>GEOMETRY_TOLERANCE)validationWarnings.push(`Seg ${segmentContext}: Calc End [${cX.toFixed(3)},${cY.toFixed(3)}] != File [${fRX.toFixed(3)},${fRY.toFixed(3)}] rel POB.`);} else if(filePobCoords&&!fEC)validationWarnings.push(`Seg ${segmentContext}: No file N/E for validation.`);} else warning=`No azimuth line ${segmentContext}.`;} else warning=`Malformed line ${segmentContext}: "${cLine}".`;} else warning=`No course/len line ${segmentContext}.`;
             } else if (type.toLowerCase() === 'curve') {
-                 let curve = { courseInStr: null, courseInBearing: null, courseInAzimuth: null, courseOutStr: null, courseOutBearing: null, courseOutAzimuth: null, tangentInAzimuth: null }; segmentDataObject.rl = "R/L";
+                 let curve = { courseInStr: null, courseInBearing: null, courseInAzimuth: null, courseOutStr: null, courseOutBearing: null, courseOutAzimuth: null, tangentInAzimuth: null, tangent: undefined, length: undefined, radius: undefined, deltaDecimal: undefined, deltaStr: undefined, chordLength: undefined, chordBearing: undefined, chordCourseStr: undefined }; // Added defaults
+                 segmentDataObject.rl = "R/L";
                  segmentData.forEach(l=>{let m; if((m=l.match(/Length:\s*([\d\.]+)'?\s*Radius:\s*([\d\.]+)'?/i))){curve.length=parseFloat(m[1]); curve.radius=parseFloat(m[2]);} else if((m=l.match(/^Delta:\s*(\d{1,3})\s*[°\uFFFD]?\s*(\d{1,2})\s*['\u2019\u2018]?\s*([\d\.]+)\s*["\u201D\u201C]?/i))){curve.deltaDecimal=parseDMS(m[0].replace(/^Delta:\s*/i,'')); curve.deltaStr=m[0].replace(/^Delta:\s*/i,'').trim(); if(curve.deltaDecimal===null&&!warning)warning=`Bad DMS Delta: "${m[0]}" ${segmentContext}.`;} else if(!curve.deltaDecimal&&(m=l.match(/Delta Angle:\s*([\d\.]+)\s*\(d\)/i))){curve.deltaDecimal=parseFloat(m[1]); curve.deltaStr=`${curve.deltaDecimal}°`;} else if((m=l.match(/Chord:\s*([\d\.]+)'?\s*Course:\s*([NSEW])\s*(\d{1,3})\s*[°\uFFFD]?\s*(\d{1,2})\s*['\u2019\u2018]?\s*([\d\.]+)\s*["\u201D\u201C]?\s*([NSEW])/i))){curve.chordLength=parseFloat(m[1]); curve.chordBearing={dir1:m[2].toUpperCase(),deg:parseInt(m[3]),min:parseInt(m[4]),sec:parseFloat(m[5]),dir2:m[6].toUpperCase()}; curve.chordCourseStr=`${m[2]} ${m[3]}°${m[4]}'${m[5]}" ${m[6]}`; } else if((m=l.match(/Course In:\s*([NSEW\d\s°'"\uFFFD\u2019\u2018\u201D\u201C\.]+)/i))){curve.courseInStr=m[1].trim(); curve.courseInBearing=parseBearing(curve.courseInStr); curve.courseInAzimuth=bearingToAzimuth(curve.courseInBearing);} else if((m=l.match(/Course Out:\s*([NSEW\d\s°'"\uFFFD\u2019\u2018\u201D\u201C\.]+)/i))){curve.courseOutStr=m[1].trim(); curve.courseOutBearing=parseBearing(curve.courseOutStr); curve.courseOutAzimuth=bearingToAzimuth(curve.courseOutBearing);} else if((m=l.match(/Tangent:\s*([\d\.]+)/i)))curve.tangent=parseFloat(m[1]);});
                  segmentDataObject={...segmentDataObject, length:curve.length, radius:curve.radius, delta:curve.deltaStr, chordLength:curve.chordLength, chordCourse:curve.chordCourseStr};
 
@@ -601,7 +602,7 @@
                     let pre=(tangencyStatus==='non-tangent'&&ntl?ntl+" ":"").trim(); const rCS=Math.round(curve.chordBearing.sec);
                     outputText=`${pre} thence ${curve.length.toFixed(2)} feet along the arc of a ${curve.radius.toFixed(2)} foot radius curve to the ${rld}, through a central angle of ${formatDMS(dmsD)}, with a long chord of ${expandDirection(curve.chordBearing.dir1)} ${curve.chordBearing.deg}°${String(curve.chordBearing.min).padStart(2,'0')}'${String(rCS).padStart(2,'0')}" ${expandDirection(curve.chordBearing.dir2)} ${curve.chordLength.toFixed(2)} feet;`.replace(/^ /,'');
 
-                    if(tangencyStatus==='tangent'&&rlc&&curve.tangentInAzimuth!==null){const tOA=(curve.tangentInAzimuth+(rlc==='R'?curve.deltaDecimal:-curve.deltaDecimal)+360)%360; const tOB=azimuthToBearing(tOA); if(tOB)lastCourseForNextSegment=`${tOB.dir1} ${tOB.deg}°${tOB.min}'${tOB.sec.toFixed(0)}" ${tOB.dir2}`; else lastCourseForNextSegment=null;} else if(curve.courseOutBearing)lastCourseForNextSegment=curve.courseOutStr; else lastCourseForNextSegment=null;
+                    if(tangencyStatus==='tangent'&&rlc&&curve.tangentInAzimuth!==null){const tOA=(curve.tangentInAzimuth+(rlc==='R'?curve.deltaDecimal:-curve.deltaDecimal)+360)%360; const tOB=azimuthToBearing(tOA); if(tOB)lastCourseForNextSegment=`${tOB.dir1} ${tOB.deg}°${tOB.min}'${Math.round(tOB.sec)}" ${tOB.dir2}`; else lastCourseForNextSegment=null;} else if(curve.courseOutBearing)lastCourseForNextSegment=curve.courseOutStr; else lastCourseForNextSegment=null;
 
                 } else { let m=["Length","Radius","Delta Angle","Chord Length","Chord Course"].filter(f=>curve[f.replace(/ /g,'').toLowerCase()]===undefined).join(', '); if(!warning)warning="";warning+=(warning?" ":"")+`Incomplete curve ${segmentContext}. Missing: ${m}.`; }
             }
