@@ -539,10 +539,9 @@
                     segmentType,
                     lastSegmentCourseString,
                     firstCurveRLOverride,
-                    segmentCounter,
-                    currentCoordinates, // Pass the current coordinates
+                    segmentCounter, 
                     formattedLines.length === 0,
-                    currentCoordinates,
+                    currentCoordinates, // This is the start coordinate for the segment
                     lastSegmentWasCurve
                 );
 
@@ -822,7 +821,7 @@
              return null; // Not found
         }
 
-        function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, currentSegmentNumber, startCoordinates, isFirstSegment, lastSegmentWasCurve) {
+        function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, currentSegmentNumber, isFirstSegment, startCoordinates, lastSegmentWasCurve) {
             let outputText = "";
             let warning = null;
             let validationWarnings = []; // *** NEW ***
