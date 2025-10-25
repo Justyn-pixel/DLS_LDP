@@ -805,8 +805,8 @@
         // *** NEW Function ***
         function parseFileCoordinates(segmentData) {
              for (const line of segmentData) {
-                 // Match North: YYY.YYY' East: XXX.XXX' (optional apostrophe)
-                 const coordMatch = line.match(/North:\s*([\d\.]+)'?\s*East:\s*([\d\.]+)'?/i);
+                 // Specifically match "End North:" to avoid capturing "RP North:"
+                 const coordMatch = line.match(/End\s+North:\s*([\d\.]+)'?\s*East:\s*([\d\.]+)'?/i);
                  if (coordMatch) {
                      const north = parseFloat(coordMatch[1]);
                      const east = parseFloat(coordMatch[2]);
