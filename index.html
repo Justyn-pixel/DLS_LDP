@@ -219,6 +219,7 @@
         let coordinatesForPlotting = []; // NEW: For Plot/KML/Calc
         let areaFromFile = null; // NEW: For comparison
         let filePobCoords = null; // *** NEW *** {north: Y, east: X}
+        let uncertainSegmentIndices = []; // NEW: To track segments for highlighting
 
         // --- CONSTANTS ---
         const R2D = 180 / Math.PI;
@@ -304,6 +305,7 @@
                 coordinatesForPlotting = [[0, 0]]; // Start at POB [0,0]
                 areaFromFile = null;
                 filePobCoords = null; // *** NEW ***
+                uncertainSegmentIndices = []; // NEW: Reset highlighted segments
                 
                 // Disable download buttons
                 downloadButton.disabled = true;
@@ -413,6 +415,7 @@
                         if (coordinatesForPlotting.length > 1) {
                             calculateAndDisplayResults(coordinatesForPlotting, areaFromFile);
                             // *** NEW: Add a high-level closure warning ***
+                            // Add a high-level closure warning
                             const misclosureResults = calculateMisclosure(coordinatesForPlotting);
                             const MIN_PRECISION_RATIO = 10000; // e.g., 1 in 10,000
                             if (misclosureResults && isFinite(misclosureResults.ratio) && misclosureResults.ratio < MIN_PRECISION_RATIO) {
@@ -420,7 +423,7 @@
                             }
                             // *** END NEW ***
                             resultsContainer.classList.remove('hidden');
-                            drawTraverse(traversePlotCanvas, coordinatesForPlotting);
+                            drawTraverse(traversePlotCanvas, coordinatesForPlotting, uncertainSegmentIndices); // Pass uncertain segments
                         }
                         
                     } catch (error) {
@@ -634,6 +637,7 @@
         function generateManualControls(warnings) {
             const manualControlsContainer = document.getElementById('manualControlsContainer');
             manualControlsContainer.innerHTML = ''; // Clear existing controls
+            uncertainSegmentIndices = []; // Clear previous uncertain indices
 
             const uncertainCurveWarnings = warnings.filter(w => w.includes("could not be determined automatically"));
             if (uncertainCurveWarnings.length === 0) return;
@@ -647,6 +651,7 @@
                 const match = warning.match(/Segment #(\d+)/);
                 if (!match) return;
                 const segmentNumber = match[1];
+                uncertainSegmentIndices.push(parseInt(segmentNumber)); // Add to list for highlighting
 
                 const controlDiv = document.createElement('div');
                 controlDiv.className = "flex items-center justify-between p-2 border border-gray-200 rounded-lg bg-gray-50";
@@ -688,6 +693,7 @@
             segmentsDataForExport = [];
             coordinatesForPlotting = [[0, 0]];
             areaFromFile = null;
+            uncertainSegmentIndices = []; // Reset for re-processing
             filePobCoords = null;
 
             const rawText = await file.text();
@@ -699,13 +705,31 @@
             // It will now use the selected values from the new dropdowns.
             const { formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue } = parseLegalDescription(rawText, firstCurveRLOverride);
 
+            // Regenerate manual controls for any *remaining* uncertain curves
+            generateManualControls(warnings);
+
+            // Update warnings display
+            const warningsContainer = document.getElementById('warningsContainer');
+            const warningsAreaUL = warningsContainer.querySelector('#warningsArea ul');
+            warningsAreaUL.innerHTML = '';
+            if (warnings.length > 0) {
+                warnings.forEach(warning => {
+                    const li = document.createElement('li');
+                    li.textContent = warning;
+                    warningsAreaUL.appendChild(li);
+                });
+                warningsContainer.classList.remove('hidden');
+            } else {
+                warningsContainer.classList.add('hidden');
+            }
+
             // Update all globals and UI elements just like in the main process button
             parsedOutputForDownload = [...formattedLines];
             segmentsDataForExport = [...segmentsData];
             areaFromFile = parsedAreaValue;
             document.getElementById('previewArea').value = parsedOutputForDownload.join('\n');
             calculateAndDisplayResults(coordinatesForPlotting, areaFromFile);
-            drawTraverse(document.getElementById('traversePlot'), coordinatesForPlotting);
+            drawTraverse(document.getElementById('traversePlot'), coordinatesForPlotting, uncertainSegmentIndices);
             
             loader.classList.add('hidden');
         }
@@ -896,6 +920,22 @@
                         if (warning === null) warning = "";
                         warning += (warning ? " " : "") + `Could not calculate curve endpoint ${segmentContext}. Missing or invalid Chord data. Coordinates will be incorrect.`;
                     }
+
+                    // *** NEW: Validate Curve Endpoint Coordinates (similar to lines) ***
+                    const fileEndpointCoords = parseFileCoordinates(segmentData);
+                    if (filePobCoords && fileEndpointCoords && endCoordinates) {
+                        const fileRelativeX = fileEndpointCoords.east - filePobCoords.east;
+                        const fileRelativeY = fileEndpointCoords.north - filePobCoords.north;
+                        const calcX = endCoordinates[0];
+                        const calcY = endCoordinates[1];
+
+                        if (Math.abs(calcX - fileRelativeX) > GEOMETRY_TOLERANCE || Math.abs(calcY - fileRelativeY) > GEOMETRY_TOLERANCE) {
+                            validationWarnings.push(`Segment ${segmentContext}: Calculated curve endpoint [${calcX.toFixed(3)}, ${calcY.toFixed(3)}] differs from file endpoint [${fileRelativeX.toFixed(3)}, ${fileRelativeY.toFixed(3)}] relative to POB.`);
+                        }
+                    } else if (filePobCoords && !fileEndpointCoords && segmentData.some(line => /End North:/.test(line))) {
+                        // Only warn if it looks like coords should be there
+                        validationWarnings.push(`Segment ${segmentContext}: Could not parse North/East coordinates from curve data for validation.`);
+                    }
                     
                     const dmsDelta = decimalToDMS(curve.deltaDecimal);
                     let rl_display = "R/L"; 
@@ -1008,14 +1048,8 @@
                     segmentDataObject.rl = rl_calc || "R/L";
 
                     // --- Text Output ---
-                    let prefixOutput = "";
-                    if (tangencyStatus === 'non-tangent' && nonTangentLabelText) {
-                         prefixOutput += nonTangentLabelText + " ";
-                    }
-                    if (rlVerifyLabelText) prefixOutput += rlVerifyLabelText + " ";
-
                     const roundedChordSeconds = Math.round(curve.chordBearing.sec);
-                    outputText = `${prefixOutput.trim()} thence ${curve.length.toFixed(2)} feet along the arc of a ${curve.radius.toFixed(2)} foot radius curve to the ${rl_display}, through a central angle of ${formatDMS(dmsDelta)}, with a long chord of ${expandDirection(curve.chordBearing.dir1)} ${curve.chordBearing.deg}°${String(curve.chordBearing.min).padStart(2,'0')}'${String(roundedChordSeconds).padStart(2,'0')}" ${expandDirection(curve.chordBearing.dir2)} ${curve.chordLength.toFixed(2)} feet;`;
+                    outputText = `thence ${curve.length.toFixed(2)} feet along the arc of a ${curve.radius.toFixed(2)} foot radius curve to the ${rl_display}, through a central angle of ${formatDMS(dmsDelta)}, with a long chord of ${expandDirection(curve.chordBearing.dir1)} ${curve.chordBearing.deg}°${String(curve.chordBearing.min).padStart(2,'0')}'${String(roundedChordSeconds).padStart(2,'0')}" ${expandDirection(curve.chordBearing.dir2)} ${curve.chordLength.toFixed(2)} feet;`;
                     
                     // --- Next Tangent ---
                     if (tangencyStatus === 'tangent' && rl_calc && curve.tangentInAzimuth !== null) {
@@ -1280,8 +1314,8 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
         }
 
-        function drawTraverse(canvas, coordinates) {
-            if (coordinates.length < 2) return;
+        function drawTraverse(canvas, coordinates, segmentsToHighlight = []) {
+            if (coordinates.length < 1) return;
             const ctx = canvas.getContext('2d');
             clearCanvas(canvas);
 
@@ -1327,19 +1361,28 @@
                 return [tx, ty];
             };
 
-            // 4. Draw segments
-            ctx.strokeStyle = '#333';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            
             const [startX, startY] = transform(coordinates[0][0], coordinates[0][1]);
-            ctx.moveTo(startX, startY);
-            
-            for (let i = 1; i < coordinates.length; i++) {
-                const [x, y] = transform(coordinates[i][0], coordinates[i][1]);
-                ctx.lineTo(x, y);
+            if (coordinates.length < 2) { // Handle single point case
+                ctx.fillStyle = 'green';
+                ctx.beginPath();
+                ctx.arc(startX, startY, 4, 0, 2 * Math.PI);
+                ctx.fill();
+                return;
             }
-            ctx.stroke();
+
+            // 4. Draw segments (loop from segment 1)
+            for (let i = 1; i < coordinates.length; i++) {
+                const isHighlighted = segmentsToHighlight.includes(i);
+                ctx.strokeStyle = isHighlighted ? '#f97316' : '#333'; // Orange for highlight, dark gray otherwise
+                ctx.lineWidth = isHighlighted ? 4 : 2;
+
+                ctx.beginPath();
+                const [p1_x, p1_y] = transform(coordinates[i-1][0], coordinates[i-1][1]);
+                const [p2_x, p2_y] = transform(coordinates[i][0], coordinates[i][1]);
+                ctx.moveTo(p1_x, p1_y);
+                ctx.lineTo(p2_x, p2_y);
+                ctx.stroke();
+            }
 
             // 5. Draw POB and POE
             ctx.fillStyle = 'green'; // POB
