@@ -185,6 +185,12 @@
                     <textarea id="previewArea" rows="12" class="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 text-sm text-gray-800" readonly placeholder="Parsed legal description will appear here..."></textarea>
                 </div>
 
+                <!-- NEW: Container for manual controls -->
+                <div id="manualControlsContainer" class="mt-4 space-y-2">
+                    <!-- Manual controls for curves will be injected here -->
+                </div>
+                <!-- END NEW -->
+
                 <div id="warningsContainer" class="mt-6 hidden">
                     <h3 class="text-md font-semibold text-orange-600 mb-2">Warnings:</h3>
                     <div id="warningsArea" class="p-3 border border-orange-300 bg-orange-50 rounded-lg text-sm text-orange-700">
@@ -243,6 +249,7 @@
             const resultsContainer = document.getElementById('resultsContainer'); // NEW
             const resultsArea = document.getElementById('resultsArea'); // NEW
             const traversePlotCanvas = document.getElementById('traversePlot'); // NEW
+            const manualControlsContainer = document.getElementById('manualControlsContainer'); // NEW
 
             // --- Drag & Drop / File Input Listeners ---
             selectFileButton.addEventListener('click', () => {
@@ -315,6 +322,7 @@
                 warningsContainer.classList.add('hidden');
                 resultsArea.innerHTML = ''; // NEW
                 resultsContainer.classList.add('hidden'); // NEW
+                manualControlsContainer.innerHTML = ''; // NEW: Clear manual controls
                 clearCanvas(traversePlotCanvas); // NEW
 
                 loader.classList.remove('hidden');
@@ -379,6 +387,9 @@
                             downloadKmlButton.classList.replace('bg-gray-400', 'bg-[#003366]'); 
                             downloadKmlButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]'); 
                         }
+
+                        // NEW: Generate manual controls if needed
+                        generateManualControls(warnings);
                         
                         // 5. Update UI (Warnings)
                         if (!filePobCoords && rawText.includes("Point of Beginning")) { // Add POB warning if it looks like it should be there
@@ -505,6 +516,7 @@
             let segmentCounter = 0; 
             let areaSummaryLine = null;
             let parsedAreaValue = null;
+            let manualOverrides = {}; // NEW: Store user's manual R/L choices
             let lastSegmentWasCurve = false;
 
             // Start traverse at [0, 0]
@@ -512,6 +524,11 @@
             // coordinatesForPlotting is global, already reset to [[0, 0]]
 
             const processAndStoreSegment = () => {
+                // NEW: Check for a manual override for this segment
+                const segmentId = `segment-${segmentCounter}`;
+                const overrideElement = document.getElementById(`override-${segmentId}`);
+                const manualRL = overrideElement ? overrideElement.value : 'auto';
+
                 if (!segmentType || currentSegmentData.length === 0) return;
 
                 const result = processSegment(
@@ -519,7 +536,7 @@
                     segmentType,
                     lastSegmentCourseString,
                     firstCurveRLOverride,
-                    segmentCounter,
+                    segmentCounter, 
                     formattedLines.length === 0,
                     currentCoordinates,
                     lastSegmentWasCurve
@@ -613,6 +630,86 @@
             return {formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue}; 
         }
 
+        // *** NEW FUNCTION: Generate Manual Controls ***
+        function generateManualControls(warnings) {
+            const manualControlsContainer = document.getElementById('manualControlsContainer');
+            manualControlsContainer.innerHTML = ''; // Clear existing controls
+
+            const uncertainCurveWarnings = warnings.filter(w => w.includes("could not be determined automatically"));
+            if (uncertainCurveWarnings.length === 0) return;
+
+            const title = document.createElement('h3');
+            title.className = "text-md font-semibold text-blue-800";
+            title.textContent = "Manual Adjustments Required:";
+            manualControlsContainer.appendChild(title);
+
+            uncertainCurveWarnings.forEach(warning => {
+                const match = warning.match(/Segment #(\d+)/);
+                if (!match) return;
+                const segmentNumber = match[1];
+
+                const controlDiv = document.createElement('div');
+                controlDiv.className = "flex items-center justify-between p-2 border border-gray-200 rounded-lg bg-gray-50";
+
+                const label = document.createElement('label');
+                label.setAttribute('for', `override-segment-${segmentNumber}`);
+                label.className = "text-sm font-medium text-gray-700";
+                label.textContent = `Segment #${segmentNumber} Curve Direction:`;
+
+                const select = document.createElement('select');
+                select.id = `override-segment-${segmentNumber}`;
+                select.className = "p-1 border border-gray-300 rounded-md bg-white text-sm";
+                select.innerHTML = `
+                    <option value="auto" selected>Select...</option>
+                    <option value="L">Left</option>
+                    <option value="R">Right</option>
+                `;
+
+                select.addEventListener('change', () => reprocessWithOverrides());
+
+                controlDiv.appendChild(label);
+                controlDiv.appendChild(select);
+                manualControlsContainer.appendChild(controlDiv);
+            });
+        }
+
+        // *** NEW FUNCTION: Re-process on manual change ***
+        async function reprocessWithOverrides() {
+            const txtFileInput = document.getElementById('txtFile');
+            const file = txtFileInput.files[0];
+            if (!file) return;
+
+            // Temporarily show loader
+            const loader = document.getElementById('loader');
+            loader.classList.remove('hidden');
+
+            // Reset outputs but keep file and overrides
+            parsedOutputForDownload = [];
+            segmentsDataForExport = [];
+            coordinatesForPlotting = [[0, 0]];
+            areaFromFile = null;
+            filePobCoords = null;
+
+            const rawText = await file.text();
+            const firstCurveRLOverride = document.getElementById('firstCurveRL').value;
+
+            filePobCoords = parsePobCoordinates(rawText);
+
+            // This is the key part: we call the main parser again.
+            // It will now use the selected values from the new dropdowns.
+            const { formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue } = parseLegalDescription(rawText, firstCurveRLOverride);
+
+            // Update all globals and UI elements just like in the main process button
+            parsedOutputForDownload = [...formattedLines];
+            segmentsDataForExport = [...segmentsData];
+            areaFromFile = parsedAreaValue;
+            document.getElementById('previewArea').value = parsedOutputForDownload.join('\n');
+            calculateAndDisplayResults(coordinatesForPlotting, areaFromFile);
+            drawTraverse(document.getElementById('traversePlot'), coordinatesForPlotting);
+            
+            loader.classList.add('hidden');
+        }
+
         // *** NEW ***
         function validateCurveData(curve, segmentContext) {
             let validationWarnings = [];
@@ -683,6 +780,11 @@
             let tangencyStatus = null; 
             const segmentContext = `(Segment #${currentSegmentNumber})`;
             const [startX, startY] = startCoordinates; // These are calculated relative coords
+
+            // NEW: Check for a manual override for this segment
+            const segmentId = `segment-${currentSegmentNumber}`;
+            const overrideElement = document.getElementById(`override-${segmentId}`);
+            const manualRL = overrideElement ? overrideElement.value : 'auto';
 
             if (type.toLowerCase() === 'line') {
                 const courseLengthLine = segmentData.find(l => l.toLowerCase().startsWith('course:'));
@@ -833,7 +935,9 @@
 
 
                     // --- R/L Detection Layered Logic ---
-                    if (curveRLOverride !== "auto" && isFirstSegment) { 
+                    if (manualRL !== "auto") { // NEW: Prioritize manual override
+                        rl_calc = manualRL;
+                    } else if (curveRLOverride !== "auto" && isFirstSegment) { 
                         rl_calc = curveRLOverride;
                     } else {
                         // 1. Deflection Method (Primary)
@@ -897,7 +1001,7 @@
                             rl_display = "R/L";
                             rlVerifyLabelText = "(R/L Verify)";
                             if (warning === null) warning = "";
-                             warning += (warning ? " " : "") + `Curve R/L ${segmentContext} could not be determined automatically.`;
+                             warning += (warning ? " " : "") + `Curve R/L ${segmentContext} could not be determined automatically. Please use manual adjustment control.`;
                         }
                     } // End if not override
                     
