@@ -273,7 +273,7 @@
                      if (files[0].name.endsWith('.txt')) {
                          txtFileInput.files = files;
                          txtFileInput.dispatchEvent(new Event('change', { bubbles: true }));
-                         processButton.click(); // *** MODIFIED: Trigger process on drop ***
+                         processButton.click(); // *** Trigger process on drop ***
                      } else {
                          statusMessage.textContent = 'Please drop a .txt file.';
                          alert('Invalid file type. Please drop a .txt file.');
@@ -290,7 +290,6 @@
 
             // --- Main Process Button Listener ---
             processButton.addEventListener('click', async () => {
-                // 1. Reset UI and globals
                 resetUIAndState();
                 loader.classList.remove('hidden');
 
@@ -309,10 +308,8 @@
                     try {
                         rawFileText = event.target.result;
                         filePobCoords = parsePobCoordinates(rawFileText);
-
                         statusMessage.textContent = 'Parsing legal description...';
                         processFileData(firstCurveRLSelect.value); // Initial processing
-
                     } catch (error) {
                         handleProcessingError(error);
                     } finally {
@@ -329,6 +326,7 @@
             // --- Update R/L Button Listener ---
             updateRlButton.addEventListener('click', () => {
                  const userOverrides = {};
+                 let allSelected = true; // Flag to check if all dropdowns are selected
                  const selects = rlInputAreaUL.querySelectorAll('select');
                  selects.forEach(select => {
                      const segNum = select.dataset.segment;
@@ -336,22 +334,25 @@
                      if (value === 'L' || value === 'R') {
                          userOverrides[segNum] = value;
                      } else {
-                         // If any are left unspecified, stop the update
+                         allSelected = false; // Mark as incomplete if any dropdown is not selected
                          statusMessage.textContent = `Please select Left or Right for Segment #${segNum}.`;
                          alert(`Please select Left or Right for Segment #${segNum}.`);
-                         throw new Error("R/L selection incomplete."); // Stop processing
                      }
                  });
 
+                // Only proceed if all necessary selections were made
+                if (!allSelected) {
+                    return; // Stop processing if selections are incomplete
+                }
 
-                 resetUIAndState(false); // Reset calculation/output parts, keep raw text/pob
+                 resetUIAndState(false);
                  statusMessage.textContent = 'Re-processing with user selections...';
                  loader.classList.remove('hidden');
 
                  try {
-                     processFileData(firstCurveRLSelect.value, userOverrides); // Pass overrides
+                     processFileData(firstCurveRLSelect.value, userOverrides);
                  } catch (error) {
-                    handleProcessingError(error); // Show error message if processing fails
+                    handleProcessingError(error);
                  } finally {
                      loader.classList.add('hidden');
                  }
@@ -360,7 +361,9 @@
 
             // --- Download Button Listeners ---
              downloadButton.addEventListener('click', async () => {
-                 if (parsedOutputForDownload.length === 0) { statusMessage.textContent = "No processed data to download."; return; }
+                 if (parsedOutputForDownload.length === 0 || Object.keys(uncertainRlSegments).length > 0) { // Check if R/L needs update
+                    statusMessage.textContent = "Please resolve R/L selections before downloading."; return;
+                 }
                  statusMessage.textContent = "Generating text file...";
                  try {
                      await generateAndDownloadTxt(parsedOutputForDownload, "legal_description_parsed.txt");
@@ -368,7 +371,9 @@
                  } catch (error) { statusMessage.textContent = `Error downloading file: ${error.message}`; }
              });
              downloadCsvButton.addEventListener('click', async () => {
-                 if (segmentsDataForExport.length === 0) { statusMessage.textContent = "No segment data to download."; return; }
+                  if (segmentsDataForExport.length === 0 || Object.keys(uncertainRlSegments).length > 0) { // Check if R/L needs update
+                     statusMessage.textContent = "Please resolve R/L selections before downloading."; return;
+                  }
                  statusMessage.textContent = "Generating CSV file...";
                  try {
                      await generateAndDownloadCsv(segmentsDataForExport);
@@ -376,7 +381,9 @@
                  } catch (error) { statusMessage.textContent = `Error downloading CSV: ${error.message}`; }
              });
              downloadKmlButton.addEventListener('click', async () => {
-                 if (coordinatesForPlotting.length <= 1) { statusMessage.textContent = "No coordinate data to download."; return; }
+                  if (coordinatesForPlotting.length <= 1 || Object.keys(uncertainRlSegments).length > 0) { // Check if R/L needs update
+                     statusMessage.textContent = "Please resolve R/L selections before downloading."; return;
+                  }
                  statusMessage.textContent = "Generating KML file...";
                  try {
                      await generateAndDownloadKml(coordinatesForPlotting, segmentsDataForExport);
@@ -384,17 +391,177 @@
                  } catch (error) { statusMessage.textContent = `Error downloading KML: ${error.message}`; }
              });
 
-        // *** THIS IS THE MISSING CLOSING BRACKET ***
+        // *** END OF DOMContentLoaded LISTENER ***
         });
 
+
         // --- Central Processing Function ---
-        function processFileData(firstCurveRLOverride, userRlOverrides = {}) { /* ... unchanged ... */ }
+        function processFileData(firstCurveRLOverride, userRlOverrides = {}) {
+            parsedOutputForDownload = [];
+            segmentsDataForExport = [];
+            coordinatesForPlotting = [[0, 0]];
+            areaFromFile = null;
+            uncertainRlSegments = {};
+
+            const {
+                formattedLines,
+                warnings,
+                areaSummaryLine,
+                segmentsData,
+                parsedAreaValue,
+                uncertainSegments
+            } = parseLegalDescription(rawFileText, firstCurveRLOverride, userRlOverrides);
+
+            parsedOutputForDownload = [...formattedLines];
+            segmentsDataForExport = [...segmentsData];
+            areaFromFile = parsedAreaValue;
+            uncertainRlSegments = uncertainSegments;
+
+             if (areaSummaryLine) {
+                 if (parsedOutputForDownload.length > 0 && parsedOutputForDownload[parsedOutputForDownload.length -1].trim() !== "") {
+                     parsedOutputForDownload.push("");
+                 }
+                 parsedOutputForDownload.push(areaSummaryLine);
+             }
+
+            document.getElementById('previewArea').value = parsedOutputForDownload.join('\n');
+            updateButtonsAndWarnings(warnings, uncertainRlSegments);
+            updateCalculationResultsAndPlot();
+        }
+
         // --- UI Reset Function ---
-        function resetUIAndState(fullReset = true) { /* ... unchanged ... */ }
+        function resetUIAndState(fullReset = true) {
+            document.getElementById('previewArea').value = '';
+            parsedOutputForDownload = [];
+            segmentsDataForExport = [];
+            coordinatesForPlotting = [[0, 0]];
+            areaFromFile = null;
+            uncertainRlSegments = {};
+
+            if (fullReset) {
+                 rawFileText = '';
+                 filePobCoords = null;
+            }
+
+            const buttons = ['downloadButton', 'downloadCsvButton', 'downloadKmlButton'];
+            buttons.forEach(id => {
+                const btn = document.getElementById(id);
+                btn.disabled = true;
+                btn.classList.replace('bg-[#003366]', 'bg-gray-400');
+                btn.classList.replace('hover:bg-[#002244]', 'hover:bg-gray-500');
+            });
+
+            document.getElementById('warningsArea ul').innerHTML = '';
+            document.getElementById('warningsContainer').classList.add('hidden');
+            document.getElementById('rlInputArea ul').innerHTML = '';
+            document.getElementById('rlInputContainer').classList.add('hidden');
+            document.getElementById('resultsArea').innerHTML = '';
+            document.getElementById('resultsContainer').classList.add('hidden');
+            clearCanvas(document.getElementById('traversePlot'));
+            document.getElementById('statusMessage').textContent = '';
+        }
+
         // --- Error Handling Function ---
-        function handleProcessingError(error) { /* ... unchanged ... */ }
+        function handleProcessingError(error) {
+             console.error('Error:', error); // Log the full error to the console
+             document.getElementById('statusMessage').textContent = `Error: ${error.message}`;
+             const warningsAreaUL = document.getElementById('warningsArea ul');
+             // Avoid adding duplicate error messages if possible
+             if (!warningsAreaUL.textContent.includes(error.message)) {
+                const li = document.createElement('li');
+                li.textContent = error.message;
+                warningsAreaUL.appendChild(li);
+             }
+             document.getElementById('warningsContainer').classList.remove('hidden');
+             document.getElementById('loader').classList.add('hidden'); // Ensure loader hides on error
+        }
+
+
         // --- Update UI Function ---
-        function updateButtonsAndWarnings(warnings, uncertainSegments) { /* ... unchanged ... */ }
+        function updateButtonsAndWarnings(warnings, uncertainSegments) {
+            const warningsAreaUL = document.getElementById('warningsArea ul');
+            const warningsContainer = document.getElementById('warningsContainer');
+            const rlInputAreaUL = document.getElementById('rlInputArea ul');
+            const rlInputContainer = document.getElementById('rlInputContainer');
+            const statusMessage = document.getElementById('statusMessage');
+
+            // --- R/L Input Area Update ---
+            rlInputAreaUL.innerHTML = ''; // Clear previous
+            const uncertainKeys = Object.keys(uncertainSegments);
+            if (uncertainKeys.length > 0) {
+                 uncertainKeys.sort((a, b) => a - b).forEach(segNum => {
+                     const li = document.createElement('li');
+                     li.innerHTML = `
+                         <span>Segment #${segNum}:</span>
+                         <select data-segment="${segNum}">
+                             <option value="">Select...</option>
+                             <option value="L">Left</option>
+                             <option value="R">Right</option>
+                         </select>
+                     `;
+                     rlInputAreaUL.appendChild(li);
+                 });
+                 rlInputContainer.classList.remove('hidden');
+                 statusMessage.textContent = 'Processing complete. Please specify R/L for curves above and click Update.';
+                 // Keep downloads disabled
+                  document.getElementById('downloadButton').disabled = true;
+                  document.getElementById('downloadCsvButton').disabled = true;
+                  document.getElementById('downloadKmlButton').disabled = true;
+
+            } else {
+                 rlInputContainer.classList.add('hidden');
+                 // Only enable downloads if R/L is resolved
+                 if (parsedOutputForDownload.length > 0) {
+                     document.getElementById('downloadButton').disabled = false;
+                     document.getElementById('downloadButton').classList.replace('bg-gray-400', 'bg-[#003366]');
+                     document.getElementById('downloadButton').classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
+                 }
+                 if (segmentsDataForExport.length > 0) {
+                     document.getElementById('downloadCsvButton').disabled = false;
+                     document.getElementById('downloadCsvButton').classList.replace('bg-gray-400', 'bg-[#003366]');
+                     document.getElementById('downloadCsvButton').classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
+                 }
+                  if (coordinatesForPlotting.length > 1) {
+                     document.getElementById('downloadKmlButton').disabled = false;
+                     document.getElementById('downloadKmlButton').classList.replace('bg-gray-400', 'bg-[#003366]');
+                     document.getElementById('downloadKmlButton').classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
+                  }
+                 // Set final status message
+                 if (warnings.length > 0) {
+                     statusMessage.textContent = 'Processing complete. Please review warnings.';
+                 } else if (parsedOutputForDownload.length > 0) {
+                     statusMessage.textContent = 'Processing complete. Ready to download.';
+                 } else {
+                     statusMessage.textContent = 'Processing complete. No data parsed.';
+                 }
+            }
+
+            // --- Warnings Area Update ---
+            warningsAreaUL.innerHTML = ''; // Clear previous
+            let uniqueWarnings = [];
+            if (!filePobCoords && rawFileText.includes("Point of Beginning")) {
+                uniqueWarnings.push("Could not parse 'Point of Beginning' coordinates. Line endpoint validation skipped.");
+            }
+             // Add other warnings, avoiding duplicates
+            warnings.forEach(w => {
+                if (!uniqueWarnings.includes(w)) {
+                    uniqueWarnings.push(w);
+                }
+            });
+
+             if (uniqueWarnings.length > 0) {
+                 uniqueWarnings.forEach(warning => {
+                     const li = document.createElement('li');
+                     li.textContent = warning;
+                     warningsAreaUL.appendChild(li);
+                 });
+                 warningsContainer.classList.remove('hidden');
+             } else {
+                 warningsContainer.classList.add('hidden');
+             }
+        }
+
+
          // --- Update Calculations and Plot Function ---
          function updateCalculationResultsAndPlot() { /* ... unchanged ... */ }
         // --- Core Parsing Logic ---
