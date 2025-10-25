@@ -675,7 +675,7 @@
                         if (result.text) formattedLines.push(result.text);
                         // NEW: Check for R/L correction request
                         if (result.rlCorrectionRequired) {
-                            rlCorrectionNeeded = { segment: currentSegmentNumber };
+                            rlCorrectionNeeded = { segment: segmentCounter };
                             return { formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue, rlCorrectionNeeded };
                         }
                         // Add validation warnings 
@@ -726,7 +726,7 @@
 
                         if (result.text) formattedLines.push(result.text);
                         if (result.rlCorrectionRequired) {
-                            rlCorrectionNeeded = { segment: currentSegmentNumber };
+                            rlCorrectionNeeded = { segment: segmentCounter };
                             return { formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue, rlCorrectionNeeded };
                         }
                         if(result.validationWarnings && result.validationWarnings.length > 0) {
@@ -780,7 +780,7 @@
 
                 if (result.text) formattedLines.push(result.text);
                 if (result.rlCorrectionRequired) {
-                    rlCorrectionNeeded = { segment: currentSegmentNumber };
+                    rlCorrectionNeeded = { segment: segmentCounter };
                     return { formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue, rlCorrectionNeeded };
                 }
                 if(result.validationWarnings && result.validationWarnings.length > 0) {
