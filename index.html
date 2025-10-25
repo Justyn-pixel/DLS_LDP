@@ -106,7 +106,6 @@
 </head>
 <body class="min-h-screen flex flex-col items-center justify-center p-4">
 
-    <!-- Main Content Card -->
     <div class="bg-white p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-4xl">
         <div class="text-center mb-10">
             <div class="inline-block mb-3">
@@ -116,7 +115,6 @@
             <p class="text-xs text-gray-500 mt-1">Powered by Gemini</p>
         </div>
 
-        <!-- Input Section -->
         <div id="dropZone" class="mb-6 border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-[#003366] hover:bg-gray-50 transition-colors">
             <p class="text-gray-500 pointer-events-none">Drag & Drop .txt file here or 
                 <button id="selectFileButton" class="text-[#003366] hover:text-[#002244] font-semibold underline focus:outline-none">select a file</button>
@@ -155,7 +153,6 @@
             </div>
         </div>
 
-        <!-- Action Buttons -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
             <button id="processButton" class="w-full bg-[#003366] hover:bg-[#002244] text-white font-semibold py-3 px-4 rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-[#003366] focus:ring-opacity-50 transition duration-150 ease-in-out">
                 Process File
@@ -165,7 +162,6 @@
             </button>
         </div>
         
-        <!-- NEW: Export Buttons -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
             <button id="downloadCsvButton" class="w-full bg-gray-400 hover:bg-gray-500 text-white font-semibold py-3 px-4 rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-opacity-50 transition duration-150 ease-in-out" disabled>
                 Download CSV
@@ -176,24 +172,19 @@
         </div>
 
 
-        <!-- Status Area -->
         <div id="statusArea" class="mt-6 text-center">
             <div id="loader" class="loader hidden"></div>
             <p id="statusMessage" class="text-sm text-gray-600"></p>
         </div>
         
-        <!-- Output Section (in two columns) -->
         <div class="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
             
-            <!-- Column 1: Text Output & Warnings -->
             <div>
-                <!-- Parsed Text Output -->
                 <div>
                     <label for="previewArea" class="block text-sm font-medium text-gray-700 mb-1">Parsed Output Preview:</label>
                     <textarea id="previewArea" rows="12" class="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 text-sm text-gray-800" readonly placeholder="Parsed legal description will appear here..."></textarea>
                 </div>
 
-                <!-- Warnings -->
                 <div id="warningsContainer" class="mt-6 hidden">
                     <h3 class="text-md font-semibold text-orange-600 mb-2">Warnings:</h3>
                     <div id="warningsArea" class="p-3 border border-orange-300 bg-orange-50 rounded-lg text-sm text-orange-700">
@@ -202,27 +193,20 @@
                 </div>
             </div>
 
-            <!-- Column 2: Visualization & Calculation -->
             <div>
-                <!-- NEW: Traverse Plot -->
                 <div>
                     <label for="traversePlot" class="block text-sm font-medium text-gray-700 mb-1">Traverse Plot:</label>
                     <canvas id="traversePlot" width="400" height="300" class="w-full h-auto aspect-[4/3]"></canvas>
                 </div>
 
-                <!-- NEW: Calculation Results -->
                 <div id="resultsContainer" class="mt-6 hidden">
                     <h3 class="text-md font-semibold text-gray-700 mb-2">Calculation Results:</h3>
                     <div id="resultsArea" class="p-3 border border-gray-300 bg-gray-50 rounded-lg text-sm text-gray-800 space-y-2">
-                        <!-- Content will be added by JS -->
-                    </div>
+                        </div>
                 </div>
             </div>
 
-        </div> <!-- End of 2-column grid -->
-    </div> <!-- End of Main Content Card -->
-
-    <script>
+        </div> </div> <script>
         // --- GLOBALS ---
         let parsedOutputForDownload = [];
         let segmentsDataForExport = []; // NEW: For CSV/KML
@@ -397,8 +381,8 @@
                         }
                         
                         // 5. Update UI (Warnings)
-                        if (!filePobCoords) { // Add POB warning if needed
-                            warnings.push("Could not find/parse 'Point of Beginning' coordinates in the file. Line endpoint validation skipped.");
+                        if (!filePobCoords && rawText.includes("Point of Beginning")) { // Add POB warning if it looks like it should be there
+                            warnings.push("Could not parse 'Point of Beginning' coordinates in the file. Line endpoint validation skipped.");
                         }
                         if (warnings.length > 0) {
                             warnings.forEach(warning => {
@@ -724,14 +708,16 @@
 
         // Normalize angle difference to be between -180 and 180
         function normalizeAngleDifference(diff) {
-            while (diff <= -180) diff += 360;
-            while (diff > 180) diff -= 360;
-            return diff;
+             if (isNaN(diff)) return diff; // Return NaN if input is NaN
+             while (diff <= -180) diff += 360;
+             while (diff > 180) diff -= 360;
+             return diff;
         }
 
         // *** NEW Function ***
         function parseFileCoordinates(segmentData) {
              for (const line of segmentData) {
+                 // Match North: YYY.YYY' East: XXX.XXX' (optional apostrophe)
                  const coordMatch = line.match(/North:\s*([\d\.]+)'?\s*East:\s*([\d\.]+)'?/i);
                  if (coordMatch) {
                      const north = parseFloat(coordMatch[1]);
@@ -790,7 +776,6 @@
                                     validationWarnings.push(`Segment ${segmentContext}: Calculated endpoint [${calcX.toFixed(3)}, ${calcY.toFixed(3)}] differs from file endpoint [${fileRelativeX.toFixed(3)}, ${fileRelativeY.toFixed(3)}] relative to POB.`);
                                 }
                             } else if (filePobCoords && !fileEndpointCoords) {
-                                // Only warn if POB was found but endpoint wasn't
                                 validationWarnings.push(`Segment ${segmentContext}: Could not parse North/East coordinates from file for validation.`);
                             }
                             // *** END NEW ***
@@ -1061,18 +1046,24 @@
         }
         
         function bearingToAzimuth(bearing) {
-            if (!bearing) return null;
-            const angle = bearing.deg + bearing.min / 60 + bearing.sec / 3600;
-            if (bearing.dir1 === 'N' && bearing.dir2 === 'E') return angle;
-            if (bearing.dir1 === 'S' && bearing.dir2 === 'E') return 180 - angle;
-            if (bearing.dir1 === 'S' && bearing.dir2 === 'W') return 180 + angle;
-            if (bearing.dir1 === 'N' && bearing.dir2 === 'W') return 360 - angle;
-            if (bearing.dir1 === 'N' && !bearing.dir2) return 0;
-            if (bearing.dir1 === 'E' && !bearing.dir2) return 90;
-            if (bearing.dir1 === 'S' && !bearing.dir2) return 180;
-            if (bearing.dir1 === 'W' && !bearing.dir2) return 270;
-            return null;
+             if (!bearing) return null;
+             // Ensure sec is a number, default to 0 if missing/NaN
+             const sec = (typeof bearing.sec === 'number' && !isNaN(bearing.sec)) ? bearing.sec : 0;
+             const angle = bearing.deg + bearing.min / 60 + sec / 3600;
+
+             if (bearing.dir1 === 'N' && bearing.dir2 === 'E') return angle;
+             if (bearing.dir1 === 'S' && bearing.dir2 === 'E') return 180 - angle;
+             if (bearing.dir1 === 'S' && bearing.dir2 === 'W') return 180 + angle;
+             if (bearing.dir1 === 'N' && bearing.dir2 === 'W') return 360 - angle;
+             // Handle cardinal directions (dir2 is empty or undefined)
+             if (bearing.dir1 === 'N' && !bearing.dir2) return 0;
+             if (bearing.dir1 === 'E' && !bearing.dir2) return 90;
+             if (bearing.dir1 === 'S' && !bearing.dir2) return 180;
+             if (bearing.dir1 === 'W' && !bearing.dir2) return 270;
+             console.warn("Could not convert bearing to azimuth:", bearing); // Log unexpected cases
+             return null;
         }
+
 
         // Convert Azimuth back to Bearing
         function azimuthToBearing(azimuth) {
@@ -1081,10 +1072,12 @@
 
             let dms = decimalToDMS(azimuth);
             
-            if (Math.abs(azimuth - 0) < 1e-9 || Math.abs(azimuth - 360) < 1e-9) return { dir1: 'N', deg: 0, min: 0, sec: 0, dir2: '', s_precise: 0 };
-            if (Math.abs(azimuth - 90) < 1e-9) return { dir1: 'E', deg: 0, min: 0, sec: 0, dir2: '', s_precise: 0 };
-            if (Math.abs(azimuth - 180) < 1e-9) return { dir1: 'S', deg: 0, min: 0, sec: 0, dir2: '', s_precise: 0 };
-            if (Math.abs(azimuth - 270) < 1e-9) return { dir1: 'W', deg: 0, min: 0, sec: 0, dir2: '', s_precise: 0 };
+            // Use a small tolerance for cardinal checks
+            const epsilon = 1e-9; 
+            if (Math.abs(azimuth - 0) < epsilon || Math.abs(azimuth - 360) < epsilon) return { dir1: 'N', deg: 0, min: 0, sec: 0, dir2: '', s_precise: 0 };
+            if (Math.abs(azimuth - 90) < epsilon) return { dir1: 'E', deg: 0, min: 0, sec: 0, dir2: '', s_precise: 0 };
+            if (Math.abs(azimuth - 180) < epsilon) return { dir1: 'S', deg: 0, min: 0, sec: 0, dir2: '', s_precise: 0 };
+            if (Math.abs(azimuth - 270) < epsilon) return { dir1: 'W', deg: 0, min: 0, sec: 0, dir2: '', s_precise: 0 };
 
             if (azimuth > 0 && azimuth < 90) {
                 dms = decimalToDMS(azimuth);
@@ -1099,8 +1092,10 @@
                 dms = decimalToDMS(360 - azimuth);
                 return { dir1: 'N', deg: dms.d, min: dms.m, sec: dms.s_precise, dir2: 'W' };
             } 
-            return null; // Should not happen with normalization
+            console.warn("Could not convert azimuth to bearing:", azimuth); // Log unexpected cases
+            return null; 
         }
+
 
         function decimalToDMS(decimalDegrees) {
             const absDegrees = Math.abs(decimalDegrees);
@@ -1378,12 +1373,10 @@
     <name>Legal Description Plot</name>
     <Style id="traverseStyle">
       <LineStyle>
-        <color>ff003366</color> <!-- AABBGGRR -> #663300 (dark blue) -->
-        <width>2</width>
+        <color>ff003366</color> <width>2</width>
       </LineStyle>
       <PolyStyle>
-        <color>80003366</color> <!-- 50% opacity blue -->
-        <fill>1</fill>
+        <color>80003366</color> <fill>1</fill>
         <outline>1</outline>
       </PolyStyle>
     </Style>
