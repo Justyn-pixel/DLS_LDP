@@ -574,27 +574,31 @@
                 }
             };
 
-            for (const line of allLinesFromFile) {
-                const trimmedLine = line.trim();
-                if (trimmedLine === "") continue; // Skip empty lines
+            // New, more robust parsing loop
+            const lines = allLinesFromFile.map(l => l.trim()).filter(l => l !== '');
+            let i = 0;
+            while (i < lines.length) {
+                const line = lines[i];
+                const segmentHeaderMatch = line.match(/^Segment\s+#(\d+)\s*:\s*(Line|Curve)/i);
+                const isAreaLine = line.match(/Area:/i);
 
-                const segmentHeaderMatch = trimmedLine.match(/^Segment\s+#(\d+)\s*:\s*(Line|Curve)/i);
-                const isAreaLine = trimmedLine.match(/Area:\s*([\d.,]+)\s*Sq\.\s*Ft\.?/i);
-                const isCoordLine = trimmedLine.match(/^North:\s*[\d\.]+'?\s*East:\s*[\d\.]+'?/i);
+                if (segmentHeaderMatch) {
+                    // Process previous segment before starting a new one
+                    if (segmentType) processAndStoreSegment();
 
-                if (segmentHeaderMatch || isAreaLine) {
-                    processAndStoreSegment(); // Process the segment we just finished collecting
-
-                    if (segmentHeaderMatch) {
-                        segmentCounter = parseInt(segmentHeaderMatch[1]);
-                        segmentType = segmentHeaderMatch[2];
-                        currentSegmentData = [];
-                    } else { // It was the Area line
-                        segmentType = null;
-                        currentSegmentData = [];
+                    segmentCounter = parseInt(segmentHeaderMatch[1]);
+                    segmentType = segmentHeaderMatch[2];
+                    currentSegmentData = [];
+                    i++; // Move to next line
+                    // Collect all lines until the next segment header or end of file
+                    while (i < lines.length && !lines[i].match(/^Segment\s+#/i) && !lines[i].match(/Area:/i)) {
+                        currentSegmentData.push(lines[i]);
+                        i++;
                     }
-                } else if (segmentType) {
-                    currentSegmentData.push(trimmedLine);
+                } else if (isAreaLine) {
+                    i++; // Skip area line for segment processing
+                } else {
+                    i++; // Should not happen if file is well-formed, but prevents infinite loops
                 }
             }
 
