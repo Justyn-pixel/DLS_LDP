@@ -32,8 +32,12 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        #warningsArea ul { list-style-type: disc; margin-left: 20px; }
-        #warningsArea li { margin-bottom: 4px; }
+        /* Style for both Warnings and R/L Input lists */
+        #warningsArea ul, #rlInputArea ul { list-style-type: disc; margin-left: 20px; }
+        #warningsArea li, #rlInputArea li { margin-bottom: 4px; }
+        /* Specific style for R/L input list items */
+         #rlInputArea li { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+        #rlInputArea select { width: 100px; padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.875rem;}
         button:disabled {
             opacity: 0.5;
             cursor: not-allowed;
@@ -171,24 +175,6 @@
             </button>
         </div>
 
-        <!-- R/L Correction Prompt - Hidden by default -->
-        <div id="rlCorrectionPrompt" class="hidden mt-4 p-4 border border-blue-300 bg-blue-50 rounded-lg">
-            <h3 class="text-md font-semibold text-blue-800 mb-2">Manual Input Required</h3>
-            <p id="rlCorrectionMessage" class="text-sm text-blue-700 mb-3">Could not determine direction for a curve.</p>
-            <div class="flex items-center space-x-4">
-                <div class="flex-1">
-                    <label for="rlCorrectionSelect" class="block text-xs font-medium text-gray-600 mb-1">Direction for Segment <span id="rlCorrectionSegmentNum"></span>:</label>
-                    <select id="rlCorrectionSelect" class="block w-full p-2 border border-gray-300 rounded-lg bg-white text-sm h-10">
-                        <option value="L">Left</option>
-                        <option value="R">Right</option>
-                    </select>
-                </div>
-                <button id="reprocessButton" class="self-end bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-150 ease-in-out h-10">
-                    Reprocess
-                </button>
-            </div>
-        </div>
-
 
         <div id="statusArea" class="mt-6 text-center">
             <div id="loader" class="loader hidden"></div>
@@ -201,6 +187,16 @@
                 <div>
                     <label for="previewArea" class="block text-sm font-medium text-gray-700 mb-1">Parsed Output Preview:</label>
                     <textarea id="previewArea" rows="12" class="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 text-sm text-gray-800" readonly placeholder="Parsed legal description will appear here..."></textarea>
+                </div>
+
+                 <div id="rlInputContainer" class="mt-6 hidden">
+                    <h3 class="text-md font-semibold text-blue-600 mb-2">Specify Curve Directions:</h3>
+                    <div id="rlInputArea" class="p-3 border border-blue-300 bg-blue-50 rounded-lg text-sm text-blue-700">
+                        <ul></ul>
+                    </div>
+                     <button id="updateRlButton" class="mt-3 w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-opacity-50 transition duration-150 ease-in-out">
+                         Update Output with R/L Selections
+                     </button>
                 </div>
 
                 <div id="warningsContainer" class="mt-6 hidden">
@@ -227,11 +223,12 @@
         </div> </div> <script>
         // --- GLOBALS ---
         let parsedOutputForDownload = [];
-        let segmentsDataForExport = []; // NEW: For CSV/KML
-        let coordinatesForPlotting = []; // NEW: For Plot/KML/Calc
-        let areaFromFile = null; // NEW: For comparison
-        let curveRLOverrides = {}; // NEW: For R/L correction
-        let filePobCoords = null; // *** NEW *** {north: Y, east: X}
+        let segmentsDataForExport = [];
+        let coordinatesForPlotting = [];
+        let areaFromFile = null;
+        let filePobCoords = null;
+        let rawFileText = ''; // Store raw text for reprocessing
+        let uncertainRlSegments = {}; // Store { segNum: segmentDataArray } for uncertain R/L
 
         // --- CONSTANTS ---
         const R2D = 180 / Math.PI;
@@ -249,8 +246,8 @@
             const fileEncodingSelect = document.getElementById('fileEncoding');
             const processButton = document.getElementById('processButton');
             const downloadButton = document.getElementById('downloadButton');
-            const downloadCsvButton = document.getElementById('downloadCsvButton'); // NEW
-            const downloadKmlButton = document.getElementById('downloadKmlButton'); // NEW
+            const downloadCsvButton = document.getElementById('downloadCsvButton');
+            const downloadKmlButton = document.getElementById('downloadKmlButton');
             const statusMessage = document.getElementById('statusMessage');
             const previewArea = document.getElementById('previewArea');
             const loader = document.getElementById('loader');
@@ -259,44 +256,28 @@
             const warningsAreaUL = warningsContainer.querySelector('#warningsArea ul');
             const dropZone = document.getElementById('dropZone');
             const selectFileButton = document.getElementById('selectFileButton');
-            const resultsContainer = document.getElementById('resultsContainer'); // NEW
-            const resultsArea = document.getElementById('resultsArea'); // NEW
-            const traversePlotCanvas = document.getElementById('traversePlot'); // NEW
-            const rlCorrectionPrompt = document.getElementById('rlCorrectionPrompt'); // NEW
-            const rlCorrectionMessage = document.getElementById('rlCorrectionMessage'); // NEW
-            const rlCorrectionSegmentNum = document.getElementById('rlCorrectionSegmentNum'); // NEW
-            const reprocessButton = document.getElementById('reprocessButton'); // NEW
+            const resultsContainer = document.getElementById('resultsContainer');
+            const resultsArea = document.getElementById('resultsArea');
+            const traversePlotCanvas = document.getElementById('traversePlot');
+            const rlInputContainer = document.getElementById('rlInputContainer');
+            const rlInputAreaUL = rlInputContainer.querySelector('#rlInputArea ul');
+            const updateRlButton = document.getElementById('updateRlButton');
+
 
             // --- Drag & Drop / File Input Listeners ---
-            selectFileButton.addEventListener('click', () => {
-                txtFileInput.click(); 
-            });
-
-            dropZone.addEventListener('click', (event) => {
-                if (event.target !== selectFileButton) {
-                    txtFileInput.click();
-                }
-            });
-
-            dropZone.addEventListener('dragover', (event) => {
-                event.preventDefault(); 
-                dropZone.classList.add('dragover');
-            });
-
-            dropZone.addEventListener('dragleave', (event) => {
+             selectFileButton.addEventListener('click', () => txtFileInput.click());
+             dropZone.addEventListener('click', (e) => { if (e.target !== selectFileButton) txtFileInput.click(); });
+             dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+             dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+             dropZone.addEventListener('drop', (e) => {
+                 e.preventDefault();
                 dropZone.classList.remove('dragover');
-            });
-
-            dropZone.addEventListener('drop', (event) => {
-                event.preventDefault();
-                dropZone.classList.remove('dragover');
-                const files = event.dataTransfer.files;
+                const files = e.dataTransfer.files;
                 if (files.length > 0) {
                     if (files[0].name.endsWith('.txt')) {
                         txtFileInput.files = files; 
-                        const changeEvent = new Event('change', { bubbles: true });
-                        txtFileInput.dispatchEvent(changeEvent);
-                        // processButton.click(); // Auto-process on drop
+                        txtFileInput.dispatchEvent(new Event('change', { bubbles: true }));
+                        processButton.click(); // Trigger process on drop
                     } else {
                         statusMessage.textContent = 'Please drop a .txt file.';
                         alert('Invalid file type. Please drop a .txt file.');
@@ -307,46 +288,17 @@
             txtFileInput.addEventListener('change', () => {
                 if (txtFileInput.files.length > 0) {
                     statusMessage.textContent = `File selected: ${txtFileInput.files[0].name}`;
-                    // processButton.click(); // Optionally auto-process on select
+                    // Optionally auto-process on select: processButton.click();
                 }
             });
 
             // --- Main Process Button Listener ---
             processButton.addEventListener('click', async () => {
-                // 1. Reset all outputs
-                curveRLOverrides = {}; // Clear any previous overrides
-                previewArea.value = ''; 
-                parsedOutputForDownload = []; 
-                segmentsDataForExport = [];
-                coordinatesForPlotting = [[0, 0]]; // Start at POB [0,0]
-                areaFromFile = null;
-                filePobCoords = null; // *** NEW ***
-                rlCorrectionPrompt.classList.add('hidden'); // Hide correction prompt
-                
-                // Disable download buttons
-                downloadButton.disabled = true;
-                downloadCsvButton.disabled = true; // NEW
-                downloadKmlButton.disabled = true; // NEW
-                downloadButton.classList.replace('bg-[#003366]', 'bg-gray-400'); 
-                downloadButton.classList.replace('hover:bg-[#002244]', 'hover:bg-gray-500'); 
-                downloadCsvButton.classList.replace('bg-[#003366]', 'bg-gray-400'); // NEW
-                downloadCsvButton.classList.replace('hover:bg-[#002244]', 'hover:bg-gray-500'); // NEW
-                downloadKmlButton.classList.replace('bg-[#003366]', 'bg-gray-400'); // NEW
-                downloadKmlButton.classList.replace('hover:bg-[#002244]', 'hover:bg-gray-500'); // NEW
-
-                // Clear warnings and results
-                statusMessage.textContent = 'Initializing...';
-                warningsAreaUL.innerHTML = ''; 
-                warningsContainer.classList.add('hidden');
-                resultsArea.innerHTML = ''; // NEW
-                resultsContainer.classList.add('hidden'); // NEW
-                clearCanvas(traversePlotCanvas); // NEW
-
+                resetUIAndState();
                 loader.classList.remove('hidden');
 
                 const file = txtFileInput.files[0];
                 const selectedEncoding = fileEncodingSelect.value === "auto" ? "UTF-8" : fileEncodingSelect.value;
-                const firstCurveRLOverride = firstCurveRLSelect.value;
 
                 if (!file) {
                     statusMessage.textContent = 'Please select a .txt file.';
@@ -358,200 +310,225 @@
                 const reader = new FileReader();
                 reader.onload = async (event) => {
                     try {
+                        rawFileText = event.target.result; // Store raw text
+                        filePobCoords = parsePobCoordinates(rawFileText);
                         statusMessage.textContent = 'Parsing legal description...';
-                        const rawText = event.target.result;
-                        
-                        // *** NEW: Parse POB Coordinates first ***
-                        filePobCoords = parsePobCoordinates(rawText);
-                        // *** END NEW ***
-
-                        // 2. Run the main parsing function
-                        const {
-                            formattedLines, 
-                            warnings, 
-                            rlCorrectionNeeded, // NEW
-                            areaSummaryLine, 
-                            segmentsData, 
-                            parsedAreaValue 
-                        } = parseLegalDescription(rawText, firstCurveRLOverride, curveRLOverrides);
-                        
-                        // 3. Display initial results (plot, text, warnings)
-                        handleSuccessfulParsing({ formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue }, rlCorrectionNeeded ? rlCorrectionNeeded.segment : null);
-
-                        // 3. Store results in globals
-                        if (rlCorrectionNeeded) {
-                            promptForCurveRL(rlCorrectionNeeded.segment, `Curve R/L (Segment #${rlCorrectionNeeded.segment}) could not be determined automatically.`);
-                            return; // Stop processing
-                        }
-
-                        parsedOutputForDownload = [...formattedLines]; 
-                        
+                        processFileData(firstCurveRLSelect.value); // Initial processing run
                     } catch (error) {
-                        console.error('Error processing file:', error);
-                        statusMessage.textContent = `Error: ${error.message}`;
-                        warningsAreaUL.innerHTML = `<li>${error.message}</li>`;
-                        warningsContainer.classList.remove('hidden');
+                        handleProcessingError(error);
                     } finally {
                         loader.classList.add('hidden');
                     }
                 };
                 reader.onerror = () => {
-                    statusMessage.textContent = 'Error reading file.';
-                    loader.classList.add('hidden');
+                     statusMessage.textContent = 'Error reading file.';
+                     loader.classList.add('hidden');
                 };
                 reader.readAsText(file, selectedEncoding); 
             });
 
-            // NEW: Reprocess button listener
-            reprocessButton.addEventListener('click', () => {
-                reprocessWithCorrection();
+            // --- Update R/L Button Listener ---
+            updateRlButton.addEventListener('click', () => {
+                 const userOverrides = {};
+                 let allSelected = true;
+                 const selects = rlInputAreaUL.querySelectorAll('select');
+                 selects.forEach(select => {
+                     const segNum = select.dataset.segment;
+                     const value = select.value;
+                     if (value === 'L' || value === 'R') {
+                         userOverrides[segNum] = value;
+                     } else {
+                         allSelected = false;
+                         statusMessage.textContent = `Please select Left or Right for Segment #${segNum}.`;
+                         // alert(`Please select Left or Right for Segment #${segNum}.`); // Optional alert
+                     }
+                 });
+
+                if (!allSelected) {
+                    return; // Stop if selections incomplete
+                }
+
+                 // Reset relevant parts but keep rawFileText and filePobCoords
+                 resetUIAndState(false);
+                 statusMessage.textContent = 'Re-processing with user selections...';
+                 loader.classList.remove('hidden');
+
+                 try {
+                     // Rerun processing with the collected overrides
+                     processFileData(firstCurveRLSelect.value, userOverrides);
+                 } catch (error) {
+                    handleProcessingError(error);
+                 } finally {
+                     loader.classList.add('hidden');
+                 }
             });
 
             // --- Download Button Listeners ---
             downloadButton.addEventListener('click', async () => {
-                if (parsedOutputForDownload.length === 0) {
-                    statusMessage.textContent = "No processed data to download.";
-                    return;
-                }
+                 if (parsedOutputForDownload.length === 0 || Object.keys(uncertainRlSegments).length > 0) {
+                    statusMessage.textContent = "Please resolve R/L selections before downloading."; return;
+                 }
                 statusMessage.textContent = "Generating text file...";
-                try {
-                    await generateAndDownloadTxt(parsedOutputForDownload, "legal_description_parsed.txt");
-                    statusMessage.textContent = 'Text file downloaded successfully!';
-                } catch (error) {
-                    statusMessage.textContent = `Error downloading file: ${error.message}`;
-                }
+                try { await generateAndDownloadTxt(parsedOutputForDownload, "legal_description_parsed.txt"); statusMessage.textContent = 'Text file downloaded successfully!'; }
+                catch (error) { statusMessage.textContent = `Error downloading file: ${error.message}`; }
             });
-
-            // NEW: Download CSV
             downloadCsvButton.addEventListener('click', async () => {
-                if (segmentsDataForExport.length === 0) {
-                    statusMessage.textContent = "No segment data to download.";
-                    return;
-                }
+                  if (segmentsDataForExport.length === 0 || Object.keys(uncertainRlSegments).length > 0) {
+                     statusMessage.textContent = "Please resolve R/L selections before downloading."; return;
+                  }
                 statusMessage.textContent = "Generating CSV file...";
-                try {
-                    await generateAndDownloadCsv(segmentsDataForExport);
-                    statusMessage.textContent = 'CSV file downloaded successfully!';
-                } catch (error) {
-                    statusMessage.textContent = `Error downloading CSV: ${error.message}`;
-                }
+                try { await generateAndDownloadCsv(segmentsDataForExport); statusMessage.textContent = 'CSV file downloaded successfully!'; }
+                catch (error) { statusMessage.textContent = `Error downloading CSV: ${error.message}`; }
             });
-
-            // NEW: Download KML
             downloadKmlButton.addEventListener('click', async () => {
-                if (coordinatesForPlotting.length <= 1) {
-                    statusMessage.textContent = "No coordinate data to download.";
-                    return;
-                }
+                  if (coordinatesForPlotting.length <= 1 || Object.keys(uncertainRlSegments).length > 0) {
+                     statusMessage.textContent = "Please resolve R/L selections before downloading."; return;
+                  }
                 statusMessage.textContent = "Generating KML file...";
-                try {
-                    await generateAndDownloadKml(coordinatesForPlotting, segmentsDataForExport);
-                    statusMessage.textContent = 'KML file downloaded successfully!';
-                } catch (error) {
-                    statusMessage.textContent = `Error downloading KML: ${error.message}`;
-                }
+                try { await generateAndDownloadKml(coordinatesForPlotting, segmentsDataForExport); statusMessage.textContent = 'KML file downloaded successfully!'; }
+                catch (error) { statusMessage.textContent = `Error downloading KML: ${error.message}`; }
             });
-        });
+        }); // <-- End of DOMContentLoaded
 
-        // --- NEW R/L Correction Functions ---
-
-        /**
-         * Displays the UI prompt for the user to select a curve's direction.
-         * @param {number} segmentNumber - The segment number that needs correction.
-         * @param {string} message - The message to display to the user.
-         */
-        function promptForCurveRL(segmentNumber, message) {
-            const rlCorrectionPrompt = document.getElementById('rlCorrectionPrompt');
-            const rlCorrectionMessage = document.getElementById('rlCorrectionMessage');
-            const rlCorrectionSegmentNum = document.getElementById('rlCorrectionSegmentNum');
-            const loader = document.getElementById('loader');
-            const statusMessage = document.getElementById('statusMessage');
-
-            rlCorrectionMessage.textContent = message;
-            rlCorrectionSegmentNum.textContent = segmentNumber;
-            rlCorrectionPrompt.classList.remove('hidden');
-            
-            loader.classList.add('hidden');
-            statusMessage.textContent = 'Action Required: Please specify the curve direction below.';
-        }
-
-        /**
-         * Gathers the user's R/L selection and re-runs the main processing function.
-         */
-        async function reprocessWithCorrection() {
-            const segmentNum = document.getElementById('rlCorrectionSegmentNum').textContent;
-            const selectedRL = document.getElementById('rlCorrectionSelect').value;
-            
-            if (segmentNum && selectedRL) {
-                curveRLOverrides[segmentNum] = selectedRL;
-            }
-
-            // Hide the prompt and re-run the main logic
-            document.getElementById('rlCorrectionPrompt').classList.add('hidden');
-            
-            // This is almost identical to the main processButton handler, but uses existing file data
-            const txtFileInput = document.getElementById('txtFile');
-            const fileEncodingSelect = document.getElementById('fileEncoding');
-            const firstCurveRLSelect = document.getElementById('firstCurveRL');
-            const loader = document.getElementById('loader');
-            const statusMessage = document.getElementById('statusMessage');
-            const previewArea = document.getElementById('previewArea');
-            const warningsContainer = document.getElementById('warningsContainer');
-            const warningsAreaUL = warningsContainer.querySelector('#warningsArea ul');
-            const resultsContainer = document.getElementById('resultsContainer');
-            const resultsArea = document.getElementById('resultsArea');
-            const traversePlotCanvas = document.getElementById('traversePlot');
-
-            // Reset outputs for re-processing
-            previewArea.value = '';
+        // --- Central Processing Function ---
+        function processFileData(firstCurveRLOverride, userRlOverrides = {}) {
+            // Reset calculation/output related globals for each run
             parsedOutputForDownload = [];
             segmentsDataForExport = [];
             coordinatesForPlotting = [[0, 0]];
             areaFromFile = null;
-            warningsAreaUL.innerHTML = '';
-            warningsContainer.classList.add('hidden');
-            resultsArea.innerHTML = '';
-            resultsContainer.classList.add('hidden');
-            clearCanvas(traversePlotCanvas);
-            loader.classList.remove('hidden');
-            statusMessage.textContent = 'Re-processing with correction...';
+            uncertainRlSegments = {}; // Clear uncertain list for this run
 
-            const file = txtFileInput.files[0];
-            const selectedEncoding = fileEncodingSelect.value === "auto" ? "UTF-8" : fileEncodingSelect.value;
-            const firstCurveRLOverride = firstCurveRLSelect.value;
+            const {
+                formattedLines, warnings, areaSummaryLine, segmentsData,
+                parsedAreaValue, uncertainSegments // Get uncertain segments from this run
+            } = parseLegalDescription(rawFileText, firstCurveRLOverride, userRlOverrides); // Pass raw text and overrides
 
-            const reader = new FileReader();
-            reader.onload = async (event) => {
-                try {
-                    const rawText = event.target.result;
-                    filePobCoords = parsePobCoordinates(rawText);
+            // Store results from this run
+            parsedOutputForDownload = [...formattedLines];
+            segmentsDataForExport = [...segmentsData];
+            areaFromFile = parsedAreaValue;
+            uncertainRlSegments = uncertainSegments; // Store uncertain ones found
 
-                    const result = parseLegalDescription(rawText, firstCurveRLOverride, curveRLOverrides);
+             if (areaSummaryLine) {
+                 if (parsedOutputForDownload.length > 0 && parsedOutputForDownload[parsedOutputForDownload.length -1].trim() !== "") {
+                     parsedOutputForDownload.push("");
+                 }
+                 parsedOutputForDownload.push(areaSummaryLine);
+             }
 
-                    if (result.rlCorrectionNeeded) {
-                        promptForCurveRL(result.rlCorrectionNeeded.segment, `Curve R/L (Segment #${result.rlCorrectionNeeded.segment}) could not be determined automatically.`);
-                        return;
-                    }
-
-                    // If successful, populate everything
-                    // For brevity, we'll just call a new function to handle the success case.
-                    handleSuccessfulParsing(result);
-
-                } catch (error) {
-                    console.error('Error re-processing file:', error);
-                    statusMessage.textContent = `Error: ${error.message}`;
-                    warningsAreaUL.innerHTML = `<li>${error.message}</li>`;
-                    warningsContainer.classList.remove('hidden');
-                } finally {
-                    loader.classList.add('hidden');
-                }
-            };
-            reader.onerror = () => {
-                statusMessage.textContent = 'Error reading file.';
-                loader.classList.add('hidden');
-            };
-            reader.readAsText(file, selectedEncoding);
+            // Update UI based on results
+            document.getElementById('previewArea').value = parsedOutputForDownload.join('\n');
+            updateButtonsAndWarnings(warnings, uncertainRlSegments); // Handles showing R/L input if needed
+            updateCalculationResultsAndPlot(); // Update plot and calcs
         }
+
+        // --- UI Reset Function ---
+        function resetUIAndState(fullReset = true) {
+            document.getElementById('previewArea').value = '';
+            parsedOutputForDownload = []; segmentsDataForExport = []; coordinatesForPlotting = [[0, 0]];
+            areaFromFile = null; uncertainRlSegments = {};
+            if (fullReset) { rawFileText = ''; filePobCoords = null; } // Only clear raw text on full reset
+
+            const buttons = ['downloadButton', 'downloadCsvButton', 'downloadKmlButton'];
+            buttons.forEach(id => {
+                const btn = document.getElementById(id); btn.disabled = true;
+                btn.classList.replace('bg-[#003366]', 'bg-gray-400'); btn.classList.replace('hover:bg-[#002244]', 'hover:bg-gray-500');
+            });
+            document.getElementById('warningsArea ul').innerHTML = ''; document.getElementById('warningsContainer').classList.add('hidden');
+            document.getElementById('rlInputArea ul').innerHTML = ''; document.getElementById('rlInputContainer').classList.add('hidden'); // Hide R/L input
+            document.getElementById('resultsArea').innerHTML = ''; document.getElementById('resultsContainer').classList.add('hidden');
+            clearCanvas(document.getElementById('traversePlot')); document.getElementById('statusMessage').textContent = '';
+        }
+
+        // --- Error Handling Function ---
+        function handleProcessingError(error) {
+             console.error('Error:', error);
+             document.getElementById('statusMessage').textContent = `Error: ${error.message}`;
+             const warningsAreaUL = document.getElementById('warningsArea ul');
+             if (!warningsAreaUL.textContent.includes(error.message)) { // Avoid duplicates
+                const li = document.createElement('li'); li.textContent = error.message; warningsAreaUL.appendChild(li);
+             }
+             document.getElementById('warningsContainer').classList.remove('hidden');
+             document.getElementById('loader').classList.add('hidden'); // Ensure loader hides
+        }
+
+        // --- Update UI Function (Handles R/L Input Display) ---
+        function updateButtonsAndWarnings(warnings, uncertainSegments) {
+            const warningsAreaUL = document.getElementById('warningsArea ul');
+            const warningsContainer = document.getElementById('warningsContainer');
+            const rlInputAreaUL = document.getElementById('rlInputArea ul');
+            const rlInputContainer = document.getElementById('rlInputContainer');
+            const statusMessage = document.getElementById('statusMessage');
+
+            // --- R/L Input Area Update ---
+            rlInputAreaUL.innerHTML = ''; // Clear previous inputs
+            const uncertainKeys = Object.keys(uncertainSegments);
+            if (uncertainKeys.length > 0) {
+                 // Sort keys numerically before creating elements
+                 uncertainKeys.sort((a, b) => parseInt(a) - parseInt(b)).forEach(segNum => {
+                     const li = document.createElement('li');
+                     li.innerHTML = `<span>Segment #${segNum}:</span> <select data-segment="${segNum}"><option value="">Select...</option><option value="L">Left</option><option value="R">Right</option></select>`;
+                     rlInputAreaUL.appendChild(li);
+                 });
+                 rlInputContainer.classList.remove('hidden'); // Show the input section
+                 statusMessage.textContent = 'Processing complete. Please specify R/L for curves above and click Update.';
+                 // Ensure download buttons are disabled
+                  document.getElementById('downloadButton').disabled = true;
+                  document.getElementById('downloadCsvButton').disabled = true;
+                  document.getElementById('downloadKmlButton').disabled = true;
+
+            } else {
+                 rlInputContainer.classList.add('hidden'); // Hide input section if resolved
+                 // Enable downloads only if no uncertain R/L remain
+                 if (parsedOutputForDownload.length > 0) {
+                    const btn = document.getElementById('downloadButton'); btn.disabled = false; btn.classList.replace('bg-gray-400', 'bg-[#003366]'); btn.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
+                 }
+                 if (segmentsDataForExport.length > 0) {
+                     const btn = document.getElementById('downloadCsvButton'); btn.disabled = false; btn.classList.replace('bg-gray-400', 'bg-[#003366]'); btn.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
+                 }
+                  if (coordinatesForPlotting.length > 1) {
+                     const btn = document.getElementById('downloadKmlButton'); btn.disabled = false; btn.classList.replace('bg-gray-400', 'bg-[#003366]'); btn.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
+                  }
+                 // Set final status message based on warnings
+                 if (warnings.length > 0) statusMessage.textContent = 'Processing complete. Please review warnings.';
+                 else if (parsedOutputForDownload.length > 0) statusMessage.textContent = 'Processing complete. Ready to download.';
+                 else statusMessage.textContent = 'Processing complete. No data parsed.';
+            }
+
+            // --- Warnings Area Update ---
+            warningsAreaUL.innerHTML = ''; // Clear previous warnings
+            let uniqueWarnings = []; // Track unique warnings to display
+            if (!filePobCoords && rawFileText.includes("Point of Beginning")) { // Add POB warning if applicable
+                uniqueWarnings.push("Could not parse 'Point of Beginning' coordinates. Line endpoint validation skipped.");
+            }
+            warnings.forEach(w => { // Add other unique warnings from processing
+                if (!uniqueWarnings.includes(w)) {
+                    uniqueWarnings.push(w);
+                }
+            });
+
+             if (uniqueWarnings.length > 0) {
+                 uniqueWarnings.forEach(warning => {
+                     const li = document.createElement('li'); li.textContent = warning; warningsAreaUL.appendChild(li);
+                 });
+                 warningsContainer.classList.remove('hidden'); // Show warnings if any exist
+             } else {
+                 warningsContainer.classList.add('hidden'); // Hide if no warnings
+             }
+        }
+
+         // --- Update Calculations and Plot Function ---
+         function updateCalculationResultsAndPlot() {
+            if (coordinatesForPlotting.length > 1) {
+                calculateAndDisplayResults(coordinatesForPlotting, areaFromFile);
+                document.getElementById('resultsContainer').classList.remove('hidden');
+                drawTraverse(document.getElementById('traversePlot'), coordinatesForPlotting);
+            } else {
+                 document.getElementById('resultsContainer').classList.add('hidden');
+                 clearCanvas(document.getElementById('traversePlot'));
+            }
+         }
 
         // --- Core Parsing Logic ---
 
@@ -560,24 +537,22 @@
             const lines = rawText.split('\n');
             for (const line of lines) {
                 const trimmedLine = line.trim();
+                // Added optional single quote flexibility
                 const pobMatch = trimmedLine.match(/Point\s+of\s+Beginning\s*:\s*North:\s*([\d\.]+)'?\s*East:\s*([\d\.]+)'?/i);
                 if (pobMatch) {
                     const north = parseFloat(pobMatch[1]);
                     const east = parseFloat(pobMatch[2]);
-                    if (!isNaN(north) && !isNaN(east)) {
-                        return { north: north, east: east };
-                    }
+                    if (!isNaN(north) && !isNaN(east)) return { north: north, east: east };
                 }
             }
-            return null; // Not found or couldn't parse
+            return null;
         }
 
-        function parseLegalDescription(rawText, firstCurveRLOverride, rlOverrides = {}) {
+        function parseLegalDescription(rawText, firstCurveRLOverride, userRlOverrides = {}) { // Accept overrides
             const allLinesFromFile = rawText.split('\n');
             const formattedLines = [];
             const warnings = [];
             let segmentsData = []; // NEW
-            let rlCorrectionNeeded = null; // NEW
             let currentSegmentData = [];
             let segmentType = null; 
             let lastSegmentCourseString = null; 
@@ -585,10 +560,10 @@
             let areaSummaryLine = null;
             let parsedAreaValue = null;
             let lastSegmentWasCurve = false;
+            let uncertainSegmentsOutput = {}; // Track uncertain segments for this run
 
             // Start traverse at [0, 0]
-            let currentCoordinates = [0, 0]; 
-            // coordinatesForPlotting is global, already reset to [[0, 0]]
+            let currentCoordinates = [0, 0]; coordinatesForPlotting = [[0, 0]]; // Reset global plot coords for this run
 
             for (const line of allLinesFromFile) {
                 const trimmedLine = line.trim();
@@ -597,16 +572,17 @@
 
                 if (segmentHeaderMatch) {
                     if (segmentType && currentSegmentData.length > 0) {
+                         const rlOverride = userRlOverrides[segmentCounter] || null;
                         const result = processSegment(
                             currentSegmentData, 
                             segmentType, 
                             lastSegmentCourseString, 
                             firstCurveRLOverride, 
-                            rlOverrides, // NEW
                             segmentCounter, 
                             formattedLines.length === 0,
                             currentCoordinates, // Pass current *calculated* position
-                            lastSegmentWasCurve 
+                            lastSegmentWasCurve, 
+                            rlOverride
                         ); 
                         
                         // Modify previous line if this is a curve 
@@ -623,17 +599,13 @@
                         }
 
                         if (result.text) formattedLines.push(result.text);
-                        // NEW: Check for R/L correction request
-                        if (result.rlCorrectionRequired) {
-                            rlCorrectionNeeded = { segment: segmentCounter };
-                            return { formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue, rlCorrectionNeeded };
-                        }
                         // Add validation warnings 
-                        if(result.validationWarnings && result.validationWarnings.length > 0) {
+                        if(result.validationWarnings?.length > 0) {
                              warnings.push(...result.validationWarnings);
                         }
                         if (result.warning) warnings.push(result.warning); // Add parsing/logic warnings
                         if (result.segmentData) segmentsData.push(result.segmentData); 
+                        if (result.isRlUncertain) uncertainSegmentsOutput[segmentCounter] = currentSegmentData;
                         
                         // Update state for next loop
                         if (result.lastCourse) lastSegmentCourseString = result.lastCourse;
@@ -648,17 +620,18 @@
                     currentSegmentData = []; 
                     continue; 
                 } else if (areaMatchTest) { 
-                    if (segmentType && currentSegmentData.length > 0) {
+                     if (segmentType && currentSegmentData.length > 0) {
+                          const rlOverride = userRlOverrides[segmentCounter] || null;
                         const result = processSegment(
                             currentSegmentData, 
                             segmentType, 
                             lastSegmentCourseString, 
                             firstCurveRLOverride, 
-                            rlOverrides, // NEW
                             segmentCounter, 
                             formattedLines.length === 0,
                             currentCoordinates,
-                            lastSegmentWasCurve
+                            lastSegmentWasCurve, 
+                            rlOverride
                         );
 
                         // Modify previous line if this is a curve
@@ -675,15 +648,12 @@
                         }
 
                         if (result.text) formattedLines.push(result.text);
-                        if (result.rlCorrectionRequired) {
-                            rlCorrectionNeeded = { segment: segmentCounter };
-                            return { formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue, rlCorrectionNeeded };
-                        }
-                        if(result.validationWarnings && result.validationWarnings.length > 0) {
+                        if(result.validationWarnings?.length > 0) {
                              warnings.push(...result.validationWarnings);
                         }
                         if (result.warning) warnings.push(result.warning);
                         if (result.segmentData) segmentsData.push(result.segmentData);
+                        if (result.isRlUncertain) uncertainSegmentsOutput[segmentCounter] = currentSegmentData;
                         if (result.lastCourse) lastSegmentCourseString = result.lastCourse;
                         lastSegmentWasCurve = (segmentType.toLowerCase() === 'curve');
                         if(result.endCoordinates) {
@@ -691,7 +661,7 @@
                             coordinatesForPlotting.push(currentCoordinates);
                         }
                     }
-                    segmentType = null; 
+                    segmentType = null; currentSegmentData = []; 
                     currentSegmentData = []; 
                 }
 
@@ -703,16 +673,17 @@
 
             // Process the very last segment
             if (segmentType && currentSegmentData.length > 0) {
+                 const rlOverride = userRlOverrides[segmentCounter] || null;
                  const result = processSegment(
                      currentSegmentData, 
                      segmentType, 
                      lastSegmentCourseString, 
                      firstCurveRLOverride, 
-                     rlOverrides, // NEW
                      segmentCounter, 
                      formattedLines.length === 0,
                      currentCoordinates,
-                     lastSegmentWasCurve
+                     lastSegmentWasCurve, 
+                     rlOverride
                  );
                 
                 // Modify previous line if this is a curve
@@ -729,15 +700,12 @@
                 }
 
                 if (result.text) formattedLines.push(result.text);
-                if (result.rlCorrectionRequired) {
-                    rlCorrectionNeeded = { segment: segmentCounter };
-                    return { formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue, rlCorrectionNeeded };
-                }
-                if(result.validationWarnings && result.validationWarnings.length > 0) {
+                if(result.validationWarnings?.length > 0) {
                      warnings.push(...result.validationWarnings);
                 }
                 if (result.warning) warnings.push(result.warning);
                 if (result.segmentData) segmentsData.push(result.segmentData);
+                if (result.isRlUncertain) uncertainSegmentsOutput[segmentCounter] = currentSegmentData;
                 if(result.endCoordinates) {
                     coordinatesForPlotting.push(result.endCoordinates);
                 }
@@ -769,79 +737,29 @@
             if (!areaSummaryLine && allLinesFromFile.some(line => /area:/i.test(line) && !warnings.some(w => w.toLowerCase().includes("area summary line was not generated")))) {
                  warnings.push("Area summary line was not generated. Check input file for 'Area: ... Sq. Ft.' format.");
             }
-            
-            return {formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue, rlCorrectionNeeded}; 
+
+            return {formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue, uncertainSegments: uncertainSegmentsOutput }; // Return uncertain segments
         }
 
-        // *** NEW ***
+
         function validateCurveData(curve, segmentContext) {
-            let validationWarnings = [];
-            if (curve.radius === undefined || curve.deltaDecimal === undefined) {
-                return validationWarnings; // Not enough data to validate
-            }
-
-            const deltaRad = curve.deltaDecimal * D2R;
-
-            // 1. Check Length
-            if (curve.length !== undefined) {
-                const calcLength = curve.radius * deltaRad;
-                if (Math.abs(curve.length - calcLength) > GEOMETRY_TOLERANCE) {
-                    validationWarnings.push(`Segment ${segmentContext}: File 'Length' (${curve.length.toFixed(3)}) does not match 'Length' calculated from R/D (${calcLength.toFixed(3)}).`);
-                }
-            }
-            
-            // 2. Check Chord Length
-            if (curve.chordLength !== undefined) {
-                const calcChord = 2 * curve.radius * Math.sin(deltaRad / 2);
-                if (Math.abs(curve.chordLength - calcChord) > GEOMETRY_TOLERANCE) {
-                    validationWarnings.push(`Segment ${segmentContext}: File 'Chord Length' (${curve.chordLength.toFixed(3)}) does not match 'Chord' calculated from R/D (${calcChord.toFixed(3)}).`);
-                }
-            }
-
-            // 3. Check Tangent Length
-            if (curve.tangent !== undefined) {
-                const calcTangent = curve.radius * Math.tan(deltaRad / 2);
-                 if (Math.abs(curve.tangent - calcTangent) > GEOMETRY_TOLERANCE) {
-                    validationWarnings.push(`Segment ${segmentContext}: File 'Tangent' (${curve.tangent.toFixed(3)}) does not match 'Tangent' calculated from R/D (${calcTangent.toFixed(3)}).`);
-                }
-            }
-
-            return validationWarnings;
+            let warnings = []; if (curve.radius===undefined||curve.deltaDecimal===undefined) return warnings; const dRad=curve.deltaDecimal*D2R;
+            if(curve.length!==undefined){const cL=curve.radius*dRad;if(Math.abs(curve.length-cL)>GEOMETRY_TOLERANCE)warnings.push(`Seg ${segmentContext}: File Len (${curve.length.toFixed(3)}) != Calc (${cL.toFixed(3)})`);}
+            if(curve.chordLength!==undefined){const cC=2*curve.radius*Math.sin(dRad/2);if(Math.abs(curve.chordLength-cC)>GEOMETRY_TOLERANCE)warnings.push(`Seg ${segmentContext}: File Chord (${curve.chordLength.toFixed(3)}) != Calc (${cC.toFixed(3)})`);}
+            if(curve.tangent!==undefined){const cT=curve.radius*Math.tan(dRad/2);if(Math.abs(curve.tangent-cT)>GEOMETRY_TOLERANCE)warnings.push(`Seg ${segmentContext}: File Tan (${curve.tangent.toFixed(3)}) != Calc (${cT.toFixed(3)})`);} return warnings;
         }
-
-        // Normalize angle difference to be between -180 and 180
-        function normalizeAngleDifference(diff) {
-             if (isNaN(diff)) return diff; // Return NaN if input is NaN
-             while (diff <= -180) diff += 360;
-             while (diff > 180) diff -= 360;
-             return diff;
-        }
-
-        // *** NEW Function ***
+        function normalizeAngleDifference(diff) { if(isNaN(diff))return diff; while(diff<=-180)diff+=360; while(diff>180)diff-=360; return diff; }
         function parseFileCoordinates(segmentData) {
-             for (const line of segmentData) {
-                 // Match North: YYY.YYY' East: XXX.XXX' (optional apostrophe)
-                 const coordMatch = line.match(/North:\s*([\d\.]+)'?\s*East:\s*([\d\.]+)'?/i);
-                 if (coordMatch) {
-                     const north = parseFloat(coordMatch[1]);
-                     const east = parseFloat(coordMatch[2]);
-                     if (!isNaN(north) && !isNaN(east)) {
-                        return { north: north, east: east };
-                     }
-                 }
-             }
-             return null; // Not found
+             for(const l of segmentData){const m=l.match(/North:\s*([\d\.]+)'?\s*East:\s*([\d\.]+)'?/i);if(m){const n=parseFloat(m[1]),e=parseFloat(m[2]);if(!isNaN(n)&&!isNaN(e))return{north:n,east:e};}} return null;
         }
 
-        function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, rlOverrides, currentSegmentNumber, isFirstSegment, startCoordinates, lastSegmentWasCurve) {
+        function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, currentSegmentNumber, isFirstSegment, startCoordinates, lastSegmentWasCurve, rlOverride = null) { // Added rlOverride param
             let outputText = "";
             let warning = null;
             let validationWarnings = []; // *** NEW ***
-            let lastCourseForNextSegment = null; 
-            let endCoordinates = null; 
-            let rlCorrectionRequired = false; // NEW
-            let segmentDataObject = { segment: currentSegmentNumber, type: type }; 
-            let tangencyStatus = null; 
+            let lastCourseForNextSegment = null;
+            let endCoordinates = null; let segmentDataObject = { segment: currentSegmentNumber, type: type };
+            let tangencyStatus = null; let isRlUncertain = false; // Flag for uncertainty
             const segmentContext = `(Segment #${currentSegmentNumber})`;
             const [startX, startY] = startCoordinates; // These are calculated relative coords
 
@@ -877,10 +795,10 @@
                                 const calcY = endCoordinates[1];
 
                                 if (Math.abs(calcX - fileRelativeX) > GEOMETRY_TOLERANCE || Math.abs(calcY - fileRelativeY) > GEOMETRY_TOLERANCE) {
-                                    validationWarnings.push(`Segment ${segmentContext}: Calculated endpoint [${calcX.toFixed(3)}, ${calcY.toFixed(3)}] differs from file endpoint [${fileRelativeX.toFixed(3)}, ${fileRelativeY.toFixed(3)}] relative to POB.`);
+                                    validationWarnings.push(`Seg ${segmentContext}: Calc End [${cX.toFixed(3)},${cY.toFixed(3)}] != File [${fRX.toFixed(3)},${fRY.toFixed(3)}] rel POB.`);
                                 }
                             } else if (filePobCoords && !fileEndpointCoords) {
-                                validationWarnings.push(`Segment ${segmentContext}: Could not parse North/East coordinates from file for validation.`);
+                                validationWarnings.push(`Seg ${segmentContext}: No file N/E for validation.`);
                             }
                             // *** END NEW ***
 
@@ -895,13 +813,8 @@
                     warning = `No course/length data found for line segment ${segmentContext}. Data: ${segmentData.join('; ')}.`;
                 }
             } else if (type.toLowerCase() === 'curve') {
-                 let curve = { 
-                    courseInStr: null, courseInBearing: null, courseInAzimuth: null, 
-                    courseOutStr: null, courseOutBearing: null, courseOutAzimuth: null, 
-                    tangentInAzimuth: null, 
-                };
-                segmentDataObject.rl = "R/L"; // Default
-
+                 let curve = { courseInStr: null, courseInBearing: null, courseInAzimuth: null, courseOutStr: null, courseOutBearing: null, courseOutAzimuth: null, tangentInAzimuth: null, tangent: undefined, length: undefined, radius: undefined, deltaDecimal: undefined, deltaStr: undefined, chordLength: undefined, chordBearing: undefined, chordCourseStr: undefined };
+                 segmentDataObject.rl = "R/L"; // Default value, might change
                 segmentData.forEach(line => {
                     let match;
                     if ((match = line.match(/Length:\s*([\d\.]+)'?\s*Radius:\s*([\d\.]+)'?/i))) {
@@ -936,11 +849,7 @@
                 });
 
                 // Store basic data for CSV
-                segmentDataObject.length = curve.length;
-                segmentDataObject.radius = curve.radius;
-                segmentDataObject.delta = curve.deltaStr;
-                segmentDataObject.chordLength = curve.chordLength;
-                segmentDataObject.chordCourse = curve.chordCourseStr;
+                segmentDataObject={...segmentDataObject, length:curve.length, radius:curve.radius, delta:curve.deltaStr, chordLength:curve.chordLength, chordCourse:curve.chordCourseStr};
 
                 if (curve.length !== undefined && curve.radius !== undefined && curve.deltaDecimal !== undefined && 
                     curve.chordLength !== undefined && curve.chordBearing !== undefined) {
@@ -952,17 +861,16 @@
                     if (chordAzimuth !== null) {
                         endCoordinates = calculateEndpoint(startX, startY, chordAzimuth, curve.chordLength);
                     } else {
-                        if (warning === null) warning = "";
-                        warning += (warning ? " " : "") + `Could not calculate curve endpoint ${segmentContext}. Missing or invalid Chord data. Coordinates will be incorrect.`;
+                        if(!warning)warning=`No endpoint curve ${segmentContext} (Chord Az).`;
                     }
                     
                     const dmsDelta = decimalToDMS(curve.deltaDecimal);
-                    let rl_display = "R/L"; 
+                    let rl_display = "[Specify L/R]"; 
                     let rl_calc = null; 
-                    let rlVerifyLabelText = ""; 
-                    let rlMethod1Result = null; // Result from deflection
-                    let rlMethod2Result = null; // Result from Tangent vs Radial
-                    let rlMethod3Result = null; // Result from Radial In vs Radial Out
+                    let nonTangentLabelText = ""; 
+                    let rlMethod1Result = null; 
+                    let rlMethod2Result = null; 
+                    let rlMethod3Result = null; 
 
                     // --- Tangency Check ---
                     tangencyStatus = 'tangent'; // Assume tangent unless proven otherwise
@@ -978,6 +886,7 @@
                                                      (Math.abs(diff - 180) <= TANGENCY_TOLERANCE_DEGREES) ||
                                                      (Math.abs(diff - 360) <= TANGENCY_TOLERANCE_DEGREES);
                         if (!isEffectivelyCollinear) {
+                            nonTangentLabelText = "(Non-Tangent)";
                             tangencyStatus = 'non-tangent'; 
                         }
                     } else if (prevLineCourseStr && curve.courseInAzimuth === null) {
@@ -992,16 +901,16 @@
 
 
                     // --- R/L Detection Layered Logic ---
-                    if (rlOverrides[currentSegmentNumber]) { // NEW: Check for manual override first
-                        rl_calc = rlOverrides[currentSegmentNumber];
-                    } else if (curveRLOverride !== "auto" && isFirstSegment) { 
+                    if (rlOverride) { // Use user override first
+                        rl_calc = rlOverride;
+                    } else if (curveRLOverride !== "auto" && isFirstSegment) { // Use file-level override
                         rl_calc = curveRLOverride;
-                    } else {
+                    } else { // Attempt automatic detection
                         // 1. Deflection Method (Primary)
                         if (curve.tangentInAzimuth !== null && chordAzimuth !== null) {
                             let deflectionToChord = normalizeAngleDifference(chordAzimuth - curve.tangentInAzimuth);
                             const deltaHalf = curve.deltaDecimal / 2;
-                            if (Math.abs(Math.abs(deflectionToChord) - deltaHalf) < 2.5) { 
+                            if (Math.abs(Math.abs(deflectionToChord) - deltaHalf) < 2.5) { // Relaxed tolerance for deflection check
                                 rlMethod1Result = deflectionToChord > 0 ? "R" : "L";
                                 if (tangencyStatus === 'inferred') tangencyStatus = 'tangent'; 
                                 if (tangencyStatus !== 'non-tangent') {
@@ -1016,7 +925,7 @@
                             let tanRadDiff = normalizeAngleDifference(curve.courseInAzimuth - curve.tangentInAzimuth);
                             if (Math.abs(tanRadDiff - 90) < NINETY_DEG_TOLERANCE) rlMethod2Result = 'L';
                             else if (Math.abs(tanRadDiff + 90) < NINETY_DEG_TOLERANCE || Math.abs(tanRadDiff - 270) < NINETY_DEG_TOLERANCE) rlMethod2Result = 'R';
-                            else { // Angle isn't close to +/- 90, likely non-tangent
+                            else { 
                                 // If tangency was assumed, but R/L detection fails, it implies non-tangency
                                 if(tangencyStatus === 'tangent' || tangencyStatus === 'inferred') tangencyStatus = 'non-tangent';
                                 rlMethod2Result = null; 
@@ -1049,23 +958,21 @@
                         // Final R/L assignment and warnings
                         if (rl_calc) {
                             rl_display = rl_calc === 'R' ? 'Right' : 'Left';
+                            isRlUncertain = false;
                         } else {
-                            rl_calc = null;
-                            rl_display = "R/L";
-                            // NEW: Instead of just a warning, signal that we need user input.
-                            rlCorrectionRequired = true;
-                            // We will stop processing at a higher level, so no need for a warning here.
-                            // The calling function will use the segment number to prompt the user.
+                            rl_display = "[Specify L/R]";
+                            isRlUncertain = true;
+                            if (!rlOverride && !warning) warning = `Curve R/L ${segmentContext} undetermined. Specify.`; // Add warning only if no override attempted
                         }
                     } // End if not override
                     
-                    segmentDataObject.rl = rl_calc || "R/L";
+                    segmentDataObject.rl = rl_calc || "[Specify L/R]"; // Store calculated, override, or placeholder
 
                     // --- Text Output ---
-                    let prefixOutput = ""; // Removed (Non-Tangent) and (R/L Verify) from output text
+                    let prefixOutput = (tangencyStatus === 'non-tangent' && nonTangentLabelText ? nonTangentLabelText + " " : "").trim();
 
                     const roundedChordSeconds = Math.round(curve.chordBearing.sec);
-                    outputText = `${prefixOutput.trim()} thence ${curve.length.toFixed(2)} feet along the arc of a ${curve.radius.toFixed(2)} foot radius curve to the ${rl_display}, through a central angle of ${formatDMS(dmsDelta)}, with a long chord of ${expandDirection(curve.chordBearing.dir1)} ${curve.chordBearing.deg}°${String(curve.chordBearing.min).padStart(2,'0')}'${String(roundedChordSeconds).padStart(2,'0')}" ${expandDirection(curve.chordBearing.dir2)} ${curve.chordLength.toFixed(2)} feet;`;
+                    outputText = `${prefixOutput} thence ${curve.length.toFixed(2)} feet along the arc of a ${curve.radius.toFixed(2)} foot radius curve to the ${rl_display}, through a central angle of ${formatDMS(dmsDelta)}, with a long chord of ${expandDirection(curve.chordBearing.dir1)} ${curve.chordBearing.deg}°${String(curve.chordBearing.min).padStart(2,'0')}'${String(roundedChordSeconds).padStart(2,'0')}" ${expandDirection(curve.chordBearing.dir2)} ${curve.chordLength.toFixed(2)} feet;`.replace(/^ /, '');
                     
                     // --- Next Tangent ---
                     if (tangencyStatus === 'tangent' && rl_calc && curve.tangentInAzimuth !== null) {
@@ -1083,29 +990,36 @@
                     }
 
                 } else {
-                    let missingFields = [];
-                    if (curve.length === undefined) missingFields.push("Length");
-                    if (curve.radius === undefined) missingFields.push("Radius");
-                    if (curve.deltaDecimal === undefined) missingFields.push("Delta Angle (decimal or DMS)");
-                    if (curve.chordLength === undefined) missingFields.push("Chord Length");
-                    if (curve.chordBearing === undefined) missingFields.push("Chord Course");
-                    if (warning === null) warning = ""; 
-                    warning += (warning ? " " : "") + `Incomplete curve data ${segmentContext}. Missing: ${missingFields.join(', ')}. Original data: ${segmentData.join('; ')}.`;
+                    let missingFields = ["Length", "Radius", "Delta Angle", "Chord Length", "Chord Course"].filter(f => curve[f.replace(/ /g, '').toLowerCase()] === undefined).join(', ');
+                    if (!warning) warning = "";
+                    warning += (warning ? " " : "") + `Incomplete curve ${segmentContext}. Missing: ${missingFields}.`;
                 }
             }
             return { 
                 text: outputText, 
                 warning: warning ? warning.trim() : null, 
                 validationWarnings: validationWarnings, // *** NEW ***
-                rlCorrectionRequired: rlCorrectionRequired, // NEW
                 lastCourse: lastCourseForNextSegment,
                 endCoordinates: endCoordinates, 
                 segmentData: segmentDataObject, 
-                tangencyStatus: tangencyStatus 
+                tangencyStatus: tangencyStatus, 
+                isRlUncertain: isRlUncertain
             };
         }
 
-        // --- Survey Calculation & Utility Functions ---
+
+        // --- Survey Calculation & Utility Functions --- (Minified)
+        function expandDirection(s){const m={'N':'North','S':'South','E':'East','W':'West'};return m[s]||s;}
+        function parseDMS(s){if(!s)return null;const m=s.match(/(\d{1,3})\s*[°\uFFFD]?\s*(\d{1,2})\s*['\u2019\u2018]?\s*([\d\.]+)\s*["\u201D\u201C]?/i);if(m){const d=parseInt(m[1]),mn=parseInt(m[2]),sc=parseFloat(m[3]);if(!isNaN(d)&&!isNaN(mn)&&!isNaN(sc))return d+mn/60+sc/3600;}console.warn("Fail DMS:",s);return null;}
+        function parseBearing(s){if(!s)return null;let m=s.match(/([NSEW])\s*(\d{1,3})\s*[°\uFFFD]?\s*(\d{1,2})\s*['\u2019\u2018]?\s*([\d\.]+)\s*["\u201D\u201C]?\s*([NSEW])/i);if(m)return{dir1:m[1].toUpperCase(),deg:parseInt(m[2]),min:parseInt(m[3]),sec:parseFloat(m[4]),dir2:m[5].toUpperCase()};m=s.match(/^\s*([NSEW])\s*$/i);if(m)return{dir1:m[1].toUpperCase(),deg:0,min:0,sec:0,dir2:''};return null;}
+        function bearingToAzimuth(b){if(!b)return null;const s=(typeof b.sec==='number'&&!isNaN(b.sec))?b.sec:0,a=b.deg+b.min/60+s/3600;if(b.dir1==='N'&&b.dir2==='E')return a;if(b.dir1==='S'&&b.dir2==='E')return 180-a;if(b.dir1==='S'&&b.dir2==='W')return 180+a;if(b.dir1==='N'&&b.dir2==='W')return 360-a;if(b.dir1==='N'&&!b.dir2)return 0;if(b.dir1==='E'&&!b.dir2)return 90;if(b.dir1==='S'&&!b.dir2)return 180;if(b.dir1==='W'&&!b.dir2)return 270;console.warn("Bad Brg:",b);return null;}
+        function azimuthToBearing(az){if(az===null||isNaN(az))return null;az=(az%360+360)%360;const e=1e-9;if(Math.abs(az)<e||Math.abs(az-360)<e)return{dir1:'N',deg:0,min:0,sec:0,dir2:'',s_precise:0};if(Math.abs(az-90)<e)return{dir1:'E',deg:0,min:0,sec:0,dir2:'',s_precise:0};if(Math.abs(az-180)<e)return{dir1:'S',deg:0,min:0,sec:0,dir2:'',s_precise:0};if(Math.abs(az-270)<e)return{dir1:'W',deg:0,min:0,sec:0,dir2:'',s_precise:0};let dms;if(az>0&&az<90){dms=decimalToDMS(az);return{dir1:'N',deg:dms.d,min:dms.m,sec:dms.s_precise,dir2:'E'};}if(az>90&&az<180){dms=decimalToDMS(180-az);return{dir1:'S',deg:dms.d,min:dms.m,sec:dms.s_precise,dir2:'E'};}if(az>180&&az<270){dms=decimalToDMS(az-180);return{dir1:'S',deg:dms.d,min:dms.m,sec:dms.s_precise,dir2:'W'};}if(az>270&&az<360){dms=decimalToDMS(360-az);return{dir1:'N',deg:dms.d,min:dms.m,sec:dms.s_precise,dir2:'W'};}console.warn("Bad Az:",az);return null;}
+        function decimalToDMS(dd){const ad=Math.abs(dd),d=Math.floor(ad),md=(ad-d)*60,m=Math.floor(md),sd=(md-m)*60,sp=sd;let sr=Math.round(sd*100)/100;if(sr>=59.995){sr=0;let nM=m+1;if(nM===60){nM=0;return{d:d+1,m:nM,s:sr,s_precise:sp};}return{d,m:nM,s:sr,s_precise:sp};}return{d,m,s:sr,s_precise:sp};}
+        function formatDMS(dms){const fs=dms.s%1===0?String(Math.round(dms.s)).padStart(2,'0'):dms.s.toFixed(2).padStart(5,'0');return`${dms.d}°${String(dms.m).padStart(2,'0')}'${fs}"`;}
+        function calculateEndpoint(sx,sy,az,len){const r=az*D2R,dy=len*Math.cos(r),dx=len*Math.sin(r);return[sx+dx,sy+dy];}
+        function calculateMisclosure(c){if(c.length<2)return null;const sp=c[0],ep=c[c.length-1],dx=ep[0]-sp[0],dy=ep[1]-sp[1],md=Math.sqrt(dx*dx+dy*dy);let tp=0;for(let i=0;i<c.length-1;i++){const p1=c[i],p2=c[i+1];tp+=Math.sqrt(Math.pow(p2[0]-p1[0],2)+Math.pow(p2[1]-p1[1],2));}if(md<1e-9||tp===0)return{misclosureDist:0,ratio:Infinity,totalPerimeter:tp};const r=tp/md;return{misclosureDist:md,ratio:r,totalPerimeter:tp};}
+        function calculateShoelaceArea(c){let a=0,n=c.length;if(n<3)return 0;let cs=[...c];const s=cs[0],e=cs[n-1];if(Math.abs(s[0]-e[0])>1e-9||Math.abs(s[1]-e[1])>1e-9){cs.push(s);n=cs.length;}for(let i=0;i<n-1;i++)a+=(cs[i][0]*cs[i+1][1])-(cs[i+1][0]*cs[i][1]);return Math.abs(a/2);}
+        function calculateAndDisplayResults(coords,areaFile){const rA=document.getElementById('resultsArea');rA.innerHTML='';const m=calculateMisclosure(coords);if(m){rA.innerHTML+=`<p><strong>Misclosure:</strong> ${m.misclosureDist.toFixed(4)} ft</p><p><strong>Perimeter:</strong> ${m.totalPerimeter.toFixed(2)} ft</p><p><strong>Precision:</strong> ${isFinite(m.ratio)?`1 in ${Math.round(m.ratio).toLocaleString('en-US')}`:'Perfect'}</p>`;}const cA=calculateShoelaceArea(coords);rA.innerHTML+=`<p><strong>Calc Area:</strong> ${Math.round(cA).toLocaleString('en-US')} sq. ft.</p>`;if(areaFile!==null){const d=cA-areaFile,dp=(areaFile!==0)?(d/areaFile)*100:0;const p=document.createElement('p');p.innerHTML=`<strong>Area vs. File:</strong> ${d.toFixed(2)} sq. ft. (${dp.toFixed(4)}%) diff`;p.classList.add(Math.abs(dp)>0.01?'text-orange-600':'text-green-600');rA.appendChild(p);}}
 
         function expandDirection(shorthand) {
             const map = { 'N': 'North', 'S': 'South', 'E': 'East', 'W': 'West' };
@@ -1257,134 +1171,8 @@
             return { misclosureDist, ratio, totalPerimeter };
         }
 
-        // Calculate Area
-        function calculateShoelaceArea(coordinates, segmentsData) {
-            let area = 0;
-            let n = coordinates.length;
-            if (n < 3) return 0;
-            
-            // Ensure polygon is closed for calculation
-            let coords = [...coordinates];
-            const start = coords[0];
-            const end = coords[n-1];
-            if (Math.abs(start[0] - end[0]) > 1e-9 || Math.abs(start[1] - end[1]) > 1e-9) { // Use tolerance
-                coords.push(start);
-                n = coords.length;
-            }
-
-            // Calculate signed area of the polygon formed by chords
-            for (let i = 0; i < n - 1; i++) {
-                area += (coords[i][0] * coords[i+1][1]) - (coords[i+1][0] * coords[i][1]);
-            }
-            let chordPolygonSignedArea = area / 2;
-
-            // Determine traverse direction for curve segment area signs
-            // If chordPolygonSignedArea is positive, traverse is counter-clockwise.
-            // If negative, traverse is clockwise.
-            const traverseDirectionSign = chordPolygonSignedArea >= 0 ? 1 : -1;
-
-            let curveSegmentAreasSum = 0;
-            segmentsData.forEach(seg => {
-                if (seg.type.toLowerCase() === 'curve' && seg.radius && seg.delta && seg.rl) {
-                    const deltaDecimal = parseDMS(seg.delta); // Assuming seg.delta is in DMS string format
-                    if (deltaDecimal !== null) {
-                        const deltaRadians = deltaDecimal * D2R;
-                        // Area of circular segment = R^2/2 * (delta_radians - sin(delta_radians))
-                        const segmentArea = 0.5 * Math.pow(seg.radius, 2) * (deltaRadians - Math.sin(deltaRadians));
-
-                        // Add or subtract based on curve direction and traverse direction
-                        if (seg.rl === 'L') {
-                            curveSegmentAreasSum += segmentArea * traverseDirectionSign;
-                        } else if (seg.rl === 'R') {
-                            curveSegmentAreasSum -= segmentArea * traverseDirectionSign;
-                        }
-                    }
-                }
-            });
-
-            return Math.abs(chordPolygonSignedArea + curveSegmentAreasSum);
-        }
-        // NEW: Refactored success handler to be callable from multiple places
-        function handleSuccessfulParsing(result) {
-            const { formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue } = result;
-
-            const previewArea = document.getElementById('previewArea');
-            const downloadButton = document.getElementById('downloadButton');
-            const downloadCsvButton = document.getElementById('downloadCsvButton');
-            const downloadKmlButton = document.getElementById('downloadKmlButton');
-            const warningsContainer = document.getElementById('warningsContainer');
-            const warningsAreaUL = warningsContainer.querySelector('#warningsArea ul');
-            const statusMessage = document.getElementById('statusMessage');
-            const resultsContainer = document.getElementById('resultsContainer');
-            const traversePlotCanvas = document.getElementById('traversePlot');
-            const highlightSegmentNumber = arguments[1] !== undefined ? arguments[1] : null; // NEW: Optional highlight segment
-
-            // Store results in globals
-            parsedOutputForDownload = [...formattedLines];
-            segmentsDataForExport = [...segmentsData];
-            areaFromFile = parsedAreaValue;
-
-            if (areaSummaryLine) {
-                if (parsedOutputForDownload.length > 0 && parsedOutputForDownload[parsedOutputForDownload.length - 1].trim() !== "") {
-                    parsedOutputForDownload.push("");
-                }
-                parsedOutputForDownload.push(areaSummaryLine);
-            }
-
-            previewArea.value = parsedOutputForDownload.join('\n');
-
-            // Update UI (Buttons)
-            // Only enable download buttons if no R/L correction is needed
-            if (!highlightSegmentNumber) {
-                if (parsedOutputForDownload.length > 0) {
-                    downloadButton.disabled = false;
-                    downloadButton.classList.replace('bg-gray-400', 'bg-[#003366]');
-                    downloadButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
-                }
-                if (segmentsDataForExport.length > 0) {
-                    downloadCsvButton.disabled = false;
-                    downloadCsvButton.classList.replace('bg-gray-400', 'bg-[#003366]');
-                    downloadCsvButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
-                }
-                if (coordinatesForPlotting.length > 1) {
-                    downloadKmlButton.disabled = false;
-                    downloadKmlButton.classList.replace('bg-gray-400', 'bg-[#003366]');
-                    downloadKmlButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
-                }
-            } else { // If R/L correction is needed, disable download buttons
-                downloadButton.disabled = true; downloadButton.classList.replace('bg-[#003366]', 'bg-gray-400'); downloadButton.classList.replace('hover:bg-[#002244]', 'hover:bg-gray-500');
-                downloadCsvButton.disabled = true; downloadCsvButton.classList.replace('bg-[#003366]', 'bg-gray-400'); downloadCsvButton.classList.replace('hover:bg-[#002244]', 'hover:bg-gray-500');
-                downloadKmlButton.disabled = true; downloadKmlButton.classList.replace('bg-[#003366]', 'bg-gray-400'); downloadKmlButton.classList.replace('hover:bg-[#002244]', 'hover:bg-gray-500');
-            }
-
-            // Update UI (Warnings)
-            if (!filePobCoords && rawText.includes("Point of Beginning")) { // Add POB warning if it looks like it should be there
-                warnings.push("Could not parse 'Point of Beginning' coordinates in the file. Line endpoint validation skipped.");
-            }
-            if (warnings.length > 0) {
-                warnings.forEach(warning => {
-                    const li = document.createElement('li');
-                    li.textContent = warning;
-                    warningsAreaUL.appendChild(li);
-                });
-                warningsContainer.classList.remove('hidden');
-                statusMessage.textContent = highlightSegmentNumber ? 'Action Required: Please specify curve direction.' : 'Processing complete. Please review warnings.';
-            } else if (parsedOutputForDownload.length > 0) {
-                statusMessage.textContent = 'Processing complete. Ready to download.';
-            } else {
-                statusMessage.textContent = 'Processing complete. No data parsed.';
-            }
-
-            // Run Calculations & Visualization
-            if (coordinatesForPlotting.length > 1) {
-                calculateAndDisplayResults(coordinatesForPlotting, segmentsDataForExport, areaFromFile); // NEW: Pass segmentsData
-                resultsContainer.classList.remove('hidden');
-                drawTraverse(traversePlotCanvas, coordinatesForPlotting, highlightSegmentNumber); // NEW: Pass highlight segment
-            }
-        }
-
         // Display Calculation Results
-        function calculateAndDisplayResults(coordinates, segmentsData, areaFromFile) { // NEW: Add segmentsData
+        function calculateAndDisplayResults(coordinates, areaFromFile) { // NEW: Add segmentsData
             const resultsArea = document.getElementById('resultsArea');
             resultsArea.innerHTML = ''; // Clear old results
 
@@ -1406,7 +1194,7 @@
             }
 
             // 2. Area
-            const calculatedArea = calculateShoelaceArea(coordinates, segmentsData); // NEW: Pass segmentsData
+            const calculatedArea = calculateShoelaceArea(coordinates); // NEW: Pass segmentsData
             const calculatedAreaEl = document.createElement('p');
             calculatedAreaEl.innerHTML = `<strong>Calculated Area:</strong> ${Math.round(calculatedArea).toLocaleString('en-US')} sq. ft.`;
             resultsArea.appendChild(calculatedAreaEl);
@@ -1435,7 +1223,7 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
         }
 
-        function drawTraverse(canvas, coordinates, highlightSegment = null) { // NEW: Add highlightSegment
+        function drawTraverse(canvas, coordinates) { // NEW: Add highlightSegment
             if (coordinates.length < 2) return;
             const ctx = canvas.getContext('2d');
             clearCanvas(canvas);
@@ -1507,28 +1295,11 @@
             ctx.beginPath();
             ctx.arc(endX, endY, 4, 0, 2 * Math.PI);
             ctx.fill();
-
-            // NEW: Highlight problematic segment
-            if (highlightSegment !== null) {
-                const segmentIndex = highlightSegment - 1; // Segment numbers are 1-based
-                if (segmentIndex >= 0 && segmentIndex < coordinates.length - 1) {
-                    const p1 = coordinates[segmentIndex];
-                    const p2 = coordinates[segmentIndex + 1];
-                    const [tp1x, tp1y] = transform(p1[0], p1[1]);
-                    const [tp2x, tp2y] = transform(p2[0], p2[1]);
-
-                    // Draw a highlight circle or label at the midpoint of the chord
-                    const midX = (tp1x + tp2x) / 2;
-                    const midY = (tp1y + tp2y) / 2;
-                    ctx.fillStyle = 'orange';
-                    ctx.font = 'bold 12px Arial';
-                    ctx.textAlign = 'center';
-                    ctx.fillText(highlightSegment, midX, midY - 8); // Label slightly above midpoint
-                }
-            }
         }
 
-        // --- Download & Formatting Functions ---
+        // --- Visualization Functions ---
+        function clearCanvas(c){const ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);}
+        function drawTraverse(c,coords){if(coords.length<2)return;const ctx=c.getContext('2d');clearCanvas(c);let minX=coords[0][0],maxX=coords[0][0],minY=coords[0][1],maxY=coords[0][1];for(const[x,y]of coords){if(x<minX)minX=x;if(x>maxX)maxX=x;if(y<minY)minY=y;if(y>maxY)maxY=y;}const p=20,pw=c.width-2*p,ph=c.height-2*p,dw=maxX-minX,dh=maxY-minY;if(dw===0&&dh===0){ctx.fillStyle='#003366';ctx.beginPath();ctx.arc(c.width/2,c.height/2,3,0,2*Math.PI);ctx.fill();return;}const edw=dw===0?1:dw,edh=dh===0?1:dh,scX=pw/edw,scY=ph/edh,sc=Math.min(scX,scY);const tr=(x,y)=>[p+(x-minX)*sc,p+(maxY-y)*sc];ctx.strokeStyle='#333';ctx.lineWidth=2;ctx.beginPath();const[sx,sy]=tr(coords[0][0],coords[0][1]);ctx.moveTo(sx,sy);for(let i=1;i<coords.length;i++){const[x,y]=tr(coords[i][0],coords[i][1]);ctx.lineTo(x,y);}ctx.stroke();ctx.fillStyle='green';ctx.beginPath();ctx.arc(sx,sy,4,0,2*Math.PI);ctx.fill();ctx.fillStyle='red';const[ex,ey]=tr(coords[coords.length-1][0],coords[coords.length-1][1]);ctx.beginPath();ctx.arc(ex,ey,4,0,2*Math.PI);ctx.fill();}
 
         async function generateAndDownloadTxt(formattedLinesArray, fileName) { 
             try {
@@ -1541,8 +1312,7 @@
             }
         }
 
-        // NEW: Download CSV
-        async function generateAndDownloadCsv(segmentsData) {
+        async function generateAndDownloadCsv(segs) {
             try {
                 const headers = [
                     "Segment", "Type", "Course", "Length", 
@@ -1550,7 +1320,7 @@
                 ];
                 let csvContent = headers.join(',') + '\n';
                 
-                segmentsData.forEach(seg => {
+                segs.forEach(seg => {
                     const row = [
                         seg.segment || '',
                         seg.type || '',
@@ -1566,14 +1336,13 @@
                 });
                 
                 const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" }); 
-                saveAs(blob, "legal_description_segments.csv");
+                saveAs(blob, "legal_segments.csv");
             } catch (error) {
                 console.error("Error generating CSV file:", error);
                 throw new Error('Error generating CSV file.');
             }
         }
 
-        // NEW: Download KML
         async function generateAndDownloadKml(coordinates, segmentsData) {
             try {
                 // KML uses Lon, Lat, Alt. We are using X, Y, Z.
@@ -1591,8 +1360,8 @@
                 const kmlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document>
-    <name>Legal Description Plot</name>
-    <Style id="traverseStyle">
+    <name>Legal Plot</name>
+    <Style id="s">
       <LineStyle>
         <color>ff003366</color> <width>2</width>
       </LineStyle>
@@ -1602,9 +1371,9 @@
       </PolyStyle>
     </Style>
     <Placemark>
-      <name>Parsed Traverse</name>
+      <name>Traverse</name>
       <description><![CDATA[${description.replace(/\n/g, '<br>')}]]></description>
-      <styleUrl>#traverseStyle</styleUrl>
+      <styleUrl>#s</styleUrl>
       <Polygon>
         <outerBoundaryIs>
           <LinearRing>
@@ -1617,7 +1386,7 @@
 </kml>`;
                 
                 const blob = new Blob([kmlContent], { type: "application/vnd.google-earth.kml+xml;charset=utf-8" }); 
-                saveAs(blob, "legal_description_plot.kml");
+                saveAs(blob, "legal_plot.kml");
             } catch (error) {
                 console.error("Error generating KML file:", error);
                 throw new Error('Error generating KML file.');
