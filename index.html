@@ -49,11 +49,15 @@
                     <option value="windows-1252">ANSI (Win-1252)</option>
                     <option value="ISO-8859-1">ANSI (ISO-8859-1)</option>
                 </select>
+            </div>
+            <div class="flex-1">
                 <label for="firstCurveRL" class="block text-xs font-medium text-gray-600 mb-1">
                     1st Curve Dir:
-                    <span class="info-icon-container relative">
-                        <span class="info-icon">i</span>
-                        <span class="tooltip">If the very first segment in your file is a curve, specify its direction (Left/Right) here. Otherwise, 'Auto-detect' is recommended.</span>
+                    <span class="info-icon-container relative inline-block">
+                        <span class="info-icon inline-block w-4 h-4 leading-4 text-center rounded-full bg-[#003366] text-white text-[10px] font-bold cursor-help ml-1">i</span>
+                        <span class="tooltip absolute w-56 bg-gray-800 text-white text-left rounded-lg p-2 z-10 bottom-full left-1/2 -translate-x-1/2 mb-2 text-xs leading-tight">If the very first segment in your file is a curve, specify its direction (Left/Right) here. Otherwise, 'Auto-detect' is recommended.
+                            <span class="absolute top-full left-1/2 -translate-x-1/2 border-4 border-solid border-transparent border-t-gray-800"></span>
+                        </span>
                     </span>
                 </label>
                 <select id="firstCurveRL" class="block w-full p-2 border border-gray-300 rounded-lg bg-gray-50 text-sm h-10">
