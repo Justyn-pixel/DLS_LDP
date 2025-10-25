@@ -655,7 +655,6 @@
             });
 
             segmentsToControl.forEach(segmentNumber => {
-                const match = warning.match(/Segment #(\d+)/);
                 // Highlight if it's still uncertain
                 if (uncertainCurveWarnings.some(w => w.includes(`Segment #${segmentNumber}`))) {
                     uncertainSegmentIndices.push(parseInt(segmentNumber));
