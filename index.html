@@ -368,13 +368,16 @@
                         // 2. Run the main parsing function
                         const {
                             formattedLines, 
-                            warnings,
+                            warnings, 
                             rlCorrectionNeeded, // NEW
                             areaSummaryLine, 
                             segmentsData, 
                             parsedAreaValue 
                         } = parseLegalDescription(rawText, firstCurveRLOverride, curveRLOverrides);
                         
+                        // 3. Display initial results (plot, text, warnings)
+                        handleSuccessfulParsing({ formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue }, rlCorrectionNeeded ? rlCorrectionNeeded.segment : null);
+
                         // 3. Store results in globals
                         if (rlCorrectionNeeded) {
                             promptForCurveRL(rlCorrectionNeeded.segment, `Curve R/L (Segment #${rlCorrectionNeeded.segment}) could not be determined automatically.`);
@@ -382,59 +385,6 @@
                         }
 
                         parsedOutputForDownload = [...formattedLines]; 
-                        segmentsDataForExport = [...segmentsData];
-                        areaFromFile = parsedAreaValue;
-
-                        if (areaSummaryLine) {
-                            if (parsedOutputForDownload.length > 0 && parsedOutputForDownload[parsedOutputForDownload.length -1].trim() !== "") { 
-                                parsedOutputForDownload.push(""); 
-                            }
-                            parsedOutputForDownload.push(areaSummaryLine);
-                        }
-                        
-                        previewArea.value = parsedOutputForDownload.join('\n');
-                        
-                        // 4. Update UI (Buttons)
-                        if (parsedOutputForDownload.length > 0) { 
-                            downloadButton.disabled = false;
-                            downloadButton.classList.replace('bg-gray-400', 'bg-[#003366]'); 
-                            downloadButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]'); 
-                        }
-                        if (segmentsDataForExport.length > 0) {
-                            downloadCsvButton.disabled = false;
-                            downloadCsvButton.classList.replace('bg-gray-400', 'bg-[#003366]'); 
-                            downloadCsvButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]'); 
-                        }
-                         if (coordinatesForPlotting.length > 1) {
-                            downloadKmlButton.disabled = false;
-                            downloadKmlButton.classList.replace('bg-gray-400', 'bg-[#003366]'); 
-                            downloadKmlButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]'); 
-                        }
-                        
-                        // 5. Update UI (Warnings)
-                        if (!filePobCoords && rawText.includes("Point of Beginning")) { // Add POB warning if it looks like it should be there
-                            warnings.push("Could not parse 'Point of Beginning' coordinates in the file. Line endpoint validation skipped.");
-                        }
-                        if (warnings.length > 0) {
-                            warnings.forEach(warning => {
-                                const li = document.createElement('li');
-                                li.textContent = warning;
-                                warningsAreaUL.appendChild(li);
-                            });
-                            warningsContainer.classList.remove('hidden');
-                            statusMessage.textContent = 'Processing complete. Please review warnings.';
-                        } else if (parsedOutputForDownload.length > 0) {
-                           statusMessage.textContent = 'Processing complete. Ready to download.'; 
-                        } else {
-                           statusMessage.textContent = 'Processing complete. No data parsed.';
-                        }
-
-                        // 6. NEW: Run Calculations & Visualization
-                        if (coordinatesForPlotting.length > 1) {
-                            calculateAndDisplayResults(coordinatesForPlotting, areaFromFile);
-                            resultsContainer.classList.remove('hidden');
-                            drawTraverse(traversePlotCanvas, coordinatesForPlotting);
-                        }
                         
                     } catch (error) {
                         console.error('Error processing file:', error);
@@ -583,7 +533,7 @@
                         return;
                     }
 
-                    // If successful, populate everything (this part is duplicated from the main handler, could be refactored)
+                    // If successful, populate everything
                     // For brevity, we'll just call a new function to handle the success case.
                     handleSuccessfulParsing(result);
 
@@ -1009,7 +959,6 @@
                     const dmsDelta = decimalToDMS(curve.deltaDecimal);
                     let rl_display = "R/L"; 
                     let rl_calc = null; 
-                    let nonTangentLabelText = ""; 
                     let rlVerifyLabelText = ""; 
                     let rlMethod1Result = null; // Result from deflection
                     let rlMethod2Result = null; // Result from Tangent vs Radial
@@ -1029,7 +978,6 @@
                                                      (Math.abs(diff - 180) <= TANGENCY_TOLERANCE_DEGREES) ||
                                                      (Math.abs(diff - 360) <= TANGENCY_TOLERANCE_DEGREES);
                         if (!isEffectivelyCollinear) {
-                            nonTangentLabelText = "(Non-Tangent)";
                             tangencyStatus = 'non-tangent'; 
                         }
                     } else if (prevLineCourseStr && curve.courseInAzimuth === null) {
@@ -1056,9 +1004,7 @@
                             if (Math.abs(Math.abs(deflectionToChord) - deltaHalf) < 2.5) { 
                                 rlMethod1Result = deflectionToChord > 0 ? "R" : "L";
                                 if (tangencyStatus === 'inferred') tangencyStatus = 'tangent'; 
-                            } else {
                                 if (tangencyStatus !== 'non-tangent') {
-                                    nonTangentLabelText = "(Non-Tangent)"; // Deflection mismatch implies non-tangency
                                     tangencyStatus = 'non-tangent'; 
                                 }
                                 rlMethod1Result = null; // Uncertain
@@ -1071,10 +1017,8 @@
                             if (Math.abs(tanRadDiff - 90) < NINETY_DEG_TOLERANCE) rlMethod2Result = 'L';
                             else if (Math.abs(tanRadDiff + 90) < NINETY_DEG_TOLERANCE || Math.abs(tanRadDiff - 270) < NINETY_DEG_TOLERANCE) rlMethod2Result = 'R';
                             else { // Angle isn't close to +/- 90, likely non-tangent
-                                if(tangencyStatus === 'tangent' || tangencyStatus === 'inferred') {
-                                     nonTangentLabelText = "(Non-Tangent)";
-                                     tangencyStatus = 'non-tangent';
-                                }
+                                // If tangency was assumed, but R/L detection fails, it implies non-tangency
+                                if(tangencyStatus === 'tangent' || tangencyStatus === 'inferred') tangencyStatus = 'non-tangent';
                                 rlMethod2Result = null; 
                             }
                         }
@@ -1118,11 +1062,7 @@
                     segmentDataObject.rl = rl_calc || "R/L";
 
                     // --- Text Output ---
-                    let prefixOutput = "";
-                    if (tangencyStatus === 'non-tangent' && nonTangentLabelText) {
-                         prefixOutput += nonTangentLabelText + " ";
-                    }
-                    if (rlVerifyLabelText) prefixOutput += rlVerifyLabelText + " ";
+                    let prefixOutput = ""; // Removed (Non-Tangent) and (R/L Verify) from output text
 
                     const roundedChordSeconds = Math.round(curve.chordBearing.sec);
                     outputText = `${prefixOutput.trim()} thence ${curve.length.toFixed(2)} feet along the arc of a ${curve.radius.toFixed(2)} foot radius curve to the ${rl_display}, through a central angle of ${formatDMS(dmsDelta)}, with a long chord of ${expandDirection(curve.chordBearing.dir1)} ${curve.chordBearing.deg}°${String(curve.chordBearing.min).padStart(2,'0')}'${String(roundedChordSeconds).padStart(2,'0')}" ${expandDirection(curve.chordBearing.dir2)} ${curve.chordLength.toFixed(2)} feet;`;
@@ -1318,7 +1258,7 @@
         }
 
         // Calculate Area
-        function calculateShoelaceArea(coordinates) {
+        function calculateShoelaceArea(coordinates, segmentsData) {
             let area = 0;
             let n = coordinates.length;
             if (n < 3) return 0;
@@ -1332,13 +1272,38 @@
                 n = coords.length;
             }
 
+            // Calculate signed area of the polygon formed by chords
             for (let i = 0; i < n - 1; i++) {
                 area += (coords[i][0] * coords[i+1][1]) - (coords[i+1][0] * coords[i][1]);
             }
-            
-            return Math.abs(area / 2);
-        }
+            let chordPolygonSignedArea = area / 2;
 
+            // Determine traverse direction for curve segment area signs
+            // If chordPolygonSignedArea is positive, traverse is counter-clockwise.
+            // If negative, traverse is clockwise.
+            const traverseDirectionSign = chordPolygonSignedArea >= 0 ? 1 : -1;
+
+            let curveSegmentAreasSum = 0;
+            segmentsData.forEach(seg => {
+                if (seg.type.toLowerCase() === 'curve' && seg.radius && seg.delta && seg.rl) {
+                    const deltaDecimal = parseDMS(seg.delta); // Assuming seg.delta is in DMS string format
+                    if (deltaDecimal !== null) {
+                        const deltaRadians = deltaDecimal * D2R;
+                        // Area of circular segment = R^2/2 * (delta_radians - sin(delta_radians))
+                        const segmentArea = 0.5 * Math.pow(seg.radius, 2) * (deltaRadians - Math.sin(deltaRadians));
+
+                        // Add or subtract based on curve direction and traverse direction
+                        if (seg.rl === 'L') {
+                            curveSegmentAreasSum += segmentArea * traverseDirectionSign;
+                        } else if (seg.rl === 'R') {
+                            curveSegmentAreasSum -= segmentArea * traverseDirectionSign;
+                        }
+                    }
+                }
+            });
+
+            return Math.abs(chordPolygonSignedArea + curveSegmentAreasSum);
+        }
         // NEW: Refactored success handler to be callable from multiple places
         function handleSuccessfulParsing(result) {
             const { formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue } = result;
@@ -1352,6 +1317,7 @@
             const statusMessage = document.getElementById('statusMessage');
             const resultsContainer = document.getElementById('resultsContainer');
             const traversePlotCanvas = document.getElementById('traversePlot');
+            const highlightSegmentNumber = arguments[1] !== undefined ? arguments[1] : null; // NEW: Optional highlight segment
 
             // Store results in globals
             parsedOutputForDownload = [...formattedLines];
@@ -1368,23 +1334,33 @@
             previewArea.value = parsedOutputForDownload.join('\n');
 
             // Update UI (Buttons)
-            if (parsedOutputForDownload.length > 0) {
-                downloadButton.disabled = false;
-                downloadButton.classList.replace('bg-gray-400', 'bg-[#003366]');
-                downloadButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
-            }
-            if (segmentsDataForExport.length > 0) {
-                downloadCsvButton.disabled = false;
-                downloadCsvButton.classList.replace('bg-gray-400', 'bg-[#003366]');
-                downloadCsvButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
-            }
-            if (coordinatesForPlotting.length > 1) {
-                downloadKmlButton.disabled = false;
-                downloadKmlButton.classList.replace('bg-gray-400', 'bg-[#003366]');
-                downloadKmlButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
+            // Only enable download buttons if no R/L correction is needed
+            if (!highlightSegmentNumber) {
+                if (parsedOutputForDownload.length > 0) {
+                    downloadButton.disabled = false;
+                    downloadButton.classList.replace('bg-gray-400', 'bg-[#003366]');
+                    downloadButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
+                }
+                if (segmentsDataForExport.length > 0) {
+                    downloadCsvButton.disabled = false;
+                    downloadCsvButton.classList.replace('bg-gray-400', 'bg-[#003366]');
+                    downloadCsvButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
+                }
+                if (coordinatesForPlotting.length > 1) {
+                    downloadKmlButton.disabled = false;
+                    downloadKmlButton.classList.replace('bg-gray-400', 'bg-[#003366]');
+                    downloadKmlButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
+                }
+            } else { // If R/L correction is needed, disable download buttons
+                downloadButton.disabled = true; downloadButton.classList.replace('bg-[#003366]', 'bg-gray-400'); downloadButton.classList.replace('hover:bg-[#002244]', 'hover:bg-gray-500');
+                downloadCsvButton.disabled = true; downloadCsvButton.classList.replace('bg-[#003366]', 'bg-gray-400'); downloadCsvButton.classList.replace('hover:bg-[#002244]', 'hover:bg-gray-500');
+                downloadKmlButton.disabled = true; downloadKmlButton.classList.replace('bg-[#003366]', 'bg-gray-400'); downloadKmlButton.classList.replace('hover:bg-[#002244]', 'hover:bg-gray-500');
             }
 
             // Update UI (Warnings)
+            if (!filePobCoords && rawText.includes("Point of Beginning")) { // Add POB warning if it looks like it should be there
+                warnings.push("Could not parse 'Point of Beginning' coordinates in the file. Line endpoint validation skipped.");
+            }
             if (warnings.length > 0) {
                 warnings.forEach(warning => {
                     const li = document.createElement('li');
@@ -1392,7 +1368,7 @@
                     warningsAreaUL.appendChild(li);
                 });
                 warningsContainer.classList.remove('hidden');
-                statusMessage.textContent = 'Processing complete. Please review warnings.';
+                statusMessage.textContent = highlightSegmentNumber ? 'Action Required: Please specify curve direction.' : 'Processing complete. Please review warnings.';
             } else if (parsedOutputForDownload.length > 0) {
                 statusMessage.textContent = 'Processing complete. Ready to download.';
             } else {
@@ -1401,14 +1377,14 @@
 
             // Run Calculations & Visualization
             if (coordinatesForPlotting.length > 1) {
-                calculateAndDisplayResults(coordinatesForPlotting, areaFromFile);
+                calculateAndDisplayResults(coordinatesForPlotting, segmentsDataForExport, areaFromFile); // NEW: Pass segmentsData
                 resultsContainer.classList.remove('hidden');
-                drawTraverse(traversePlotCanvas, coordinatesForPlotting);
+                drawTraverse(traversePlotCanvas, coordinatesForPlotting, highlightSegmentNumber); // NEW: Pass highlight segment
             }
         }
 
         // Display Calculation Results
-        function calculateAndDisplayResults(coordinates, areaFromFile) {
+        function calculateAndDisplayResults(coordinates, segmentsData, areaFromFile) { // NEW: Add segmentsData
             const resultsArea = document.getElementById('resultsArea');
             resultsArea.innerHTML = ''; // Clear old results
 
@@ -1430,7 +1406,7 @@
             }
 
             // 2. Area
-            const calculatedArea = calculateShoelaceArea(coordinates);
+            const calculatedArea = calculateShoelaceArea(coordinates, segmentsData); // NEW: Pass segmentsData
             const calculatedAreaEl = document.createElement('p');
             calculatedAreaEl.innerHTML = `<strong>Calculated Area:</strong> ${Math.round(calculatedArea).toLocaleString('en-US')} sq. ft.`;
             resultsArea.appendChild(calculatedAreaEl);
@@ -1459,7 +1435,7 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
         }
 
-        function drawTraverse(canvas, coordinates) {
+        function drawTraverse(canvas, coordinates, highlightSegment = null) { // NEW: Add highlightSegment
             if (coordinates.length < 2) return;
             const ctx = canvas.getContext('2d');
             clearCanvas(canvas);
@@ -1531,6 +1507,25 @@
             ctx.beginPath();
             ctx.arc(endX, endY, 4, 0, 2 * Math.PI);
             ctx.fill();
+
+            // NEW: Highlight problematic segment
+            if (highlightSegment !== null) {
+                const segmentIndex = highlightSegment - 1; // Segment numbers are 1-based
+                if (segmentIndex >= 0 && segmentIndex < coordinates.length - 1) {
+                    const p1 = coordinates[segmentIndex];
+                    const p2 = coordinates[segmentIndex + 1];
+                    const [tp1x, tp1y] = transform(p1[0], p1[1]);
+                    const [tp2x, tp2y] = transform(p2[0], p2[1]);
+
+                    // Draw a highlight circle or label at the midpoint of the chord
+                    const midX = (tp1x + tp2x) / 2;
+                    const midY = (tp1y + tp2y) / 2;
+                    ctx.fillStyle = 'orange';
+                    ctx.font = 'bold 12px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(highlightSegment, midX, midY - 8); // Label slightly above midpoint
+                }
+            }
         }
 
         // --- Download & Formatting Functions ---
