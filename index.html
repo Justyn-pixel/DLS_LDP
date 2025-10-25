@@ -634,10 +634,10 @@
         }
 
         // *** NEW FUNCTION: Generate Manual Controls ***
-        function generateManualControls(warnings) {
+        function generateManualControls(warnings, existingOverrides = {}) {
             const manualControlsContainer = document.getElementById('manualControlsContainer');
             manualControlsContainer.innerHTML = ''; // Clear existing controls
-            uncertainSegmentIndices = []; // Clear previous uncertain indices
+            uncertainSegmentIndices = []; // Clear previous uncertain indices on each generation
 
             const uncertainCurveWarnings = warnings.filter(w => w.includes("could not be determined automatically"));
             if (uncertainCurveWarnings.length === 0) return;
@@ -647,11 +647,19 @@
             title.textContent = "Manual Adjustments Required:";
             manualControlsContainer.appendChild(title);
 
-            uncertainCurveWarnings.forEach(warning => {
+            // Combine uncertain warnings with existing overrides to show all necessary controls
+            const segmentsToControl = new Set(Object.keys(existingOverrides));
+            uncertainCurveWarnings.forEach(w => {
+                const match = w.match(/Segment #(\d+)/);
+                if (match) segmentsToControl.add(match[1]);
+            });
+
+            segmentsToControl.forEach(segmentNumber => {
                 const match = warning.match(/Segment #(\d+)/);
-                if (!match) return;
-                const segmentNumber = match[1];
-                uncertainSegmentIndices.push(parseInt(segmentNumber)); // Add to list for highlighting
+                // Highlight if it's still uncertain
+                if (uncertainCurveWarnings.some(w => w.includes(`Segment #${segmentNumber}`))) {
+                    uncertainSegmentIndices.push(parseInt(segmentNumber));
+                }
 
                 const controlDiv = document.createElement('div');
                 controlDiv.className = "flex items-center justify-between p-2 border border-gray-200 rounded-lg bg-gray-50";
@@ -669,6 +677,11 @@
                     <option value="L">Left</option>
                     <option value="R">Right</option>
                 `;
+
+                // *** NEW: Re-apply the user's previous selection ***
+                if (existingOverrides[segmentNumber]) {
+                    select.value = existingOverrides[segmentNumber];
+                }
 
                 select.addEventListener('change', () => reprocessWithOverrides());
 
@@ -701,12 +714,24 @@
 
             filePobCoords = parsePobCoordinates(rawText);
 
+            // *** NEW: Preserve existing manual overrides ***
+            const existingOverrides = {};
+            const manualControlsContainer = document.getElementById('manualControlsContainer');
+            const existingSelects = manualControlsContainer.querySelectorAll('select');
+            existingSelects.forEach(select => {
+                const segmentNumber = select.id.split('-')[2];
+                if (select.value !== 'auto') {
+                    existingOverrides[segmentNumber] = select.value;
+                }
+            });
+            // *** END NEW ***
+
             // This is the key part: we call the main parser again.
             // It will now use the selected values from the new dropdowns.
             const { formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue } = parseLegalDescription(rawText, firstCurveRLOverride);
 
             // Regenerate manual controls for any *remaining* uncertain curves
-            generateManualControls(warnings);
+            generateManualControls(warnings, existingOverrides);
 
             // Update warnings display
             const warningsContainer = document.getElementById('warningsContainer');
