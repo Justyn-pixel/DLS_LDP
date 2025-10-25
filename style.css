@@ -1,0 +1,82 @@
+body {
+    font-family: 'Inter', sans-serif;
+    background-image: url('assets/background-topo.jpg');
+    background-size: cover;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+    background-position: center center;
+}
+
+textarea::-webkit-scrollbar {
+    width: 8px;
+}
+
+textarea::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+textarea::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 10px;
+}
+
+textarea::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+.loader {
+    border: 5px solid #f3f3f3;
+    border-top: 5px solid #003366;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+    margin: 20px auto;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+#warningsArea ul {
+    list-style-type: disc;
+    margin-left: 20px;
+}
+
+#warningsArea li {
+    margin-bottom: 4px;
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+    border-color: #003366 !important;
+    box-shadow: 0 0 0 2px rgba(0, 51, 102, 0.3) !important;
+}
+
+#dropZone.dragover {
+    border-color: #003366;
+    background-color: rgba(0, 51, 102, 0.05);
+}
+
+#traversePlot {
+    border: 1px solid #d1d5db;
+    /* gray-300 */
+    border-radius: 0.5rem;
+    /* rounded-lg */
+    background-color: #f9fafb;
+    /* gray-50 */
+}
