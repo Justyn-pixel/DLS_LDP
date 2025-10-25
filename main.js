@@ -711,7 +711,8 @@ function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, c
                         if (Math.abs(calcX - fileRelativeX) > GEOMETRY_TOLERANCE || Math.abs(calcY - fileRelativeY) > GEOMETRY_TOLERANCE) {
                             validationWarnings.push(`Segment ${segmentContext}: Calculated endpoint [${calcX.toFixed(3)}, ${calcY.toFixed(3)}] differs from file endpoint [${fileRelativeX.toFixed(3)}, ${fileRelativeY.toFixed(3)}] relative to POB.`);
                         }
-                    } else if (filePobCoords && !fileEndpointCoords) {
+                    } else if (filePobCoords && !fileEndpointCoords && segmentData.some(line => /End\s+North:/.test(line))) {
+                        // Only warn if it looks like coords should be there but couldn't be parsed
                         validationWarnings.push(`Segment ${segmentContext}: Could not parse North/East coordinates from file for validation.`);
                     }
                     // *** END NEW ***
