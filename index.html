@@ -401,6 +401,13 @@
                         // 6. NEW: Run Calculations & Visualization
                         if (coordinatesForPlotting.length > 1) {
                             calculateAndDisplayResults(coordinatesForPlotting, areaFromFile);
+                            // *** NEW: Add a high-level closure warning ***
+                            const misclosureResults = calculateMisclosure(coordinatesForPlotting);
+                            const MIN_PRECISION_RATIO = 10000; // e.g., 1 in 10,000
+                            if (misclosureResults && isFinite(misclosureResults.ratio) && misclosureResults.ratio < MIN_PRECISION_RATIO) {
+                                warnings.push(`Poor traverse closure. Precision is 1 in ${Math.round(misclosureResults.ratio).toLocaleString()}, which is below the typical minimum of 1 in ${MIN_PRECISION_RATIO.toLocaleString()}. Check input data for errors.`);
+                            }
+                            // *** END NEW ***
                             resultsContainer.classList.remove('hidden');
                             drawTraverse(traversePlotCanvas, coordinatesForPlotting);
                         }
@@ -413,6 +420,7 @@
                     } finally {
                         loader.classList.add('hidden');
                     }
+
                 };
                 reader.onerror = () => {
                     statusMessage.textContent = 'Error reading file.';
