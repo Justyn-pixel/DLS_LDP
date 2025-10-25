@@ -171,6 +171,24 @@
             </button>
         </div>
 
+        <!-- R/L Correction Prompt - Hidden by default -->
+        <div id="rlCorrectionPrompt" class="hidden mt-4 p-4 border border-blue-300 bg-blue-50 rounded-lg">
+            <h3 class="text-md font-semibold text-blue-800 mb-2">Manual Input Required</h3>
+            <p id="rlCorrectionMessage" class="text-sm text-blue-700 mb-3">Could not determine direction for a curve.</p>
+            <div class="flex items-center space-x-4">
+                <div class="flex-1">
+                    <label for="rlCorrectionSelect" class="block text-xs font-medium text-gray-600 mb-1">Direction for Segment <span id="rlCorrectionSegmentNum"></span>:</label>
+                    <select id="rlCorrectionSelect" class="block w-full p-2 border border-gray-300 rounded-lg bg-white text-sm h-10">
+                        <option value="L">Left</option>
+                        <option value="R">Right</option>
+                    </select>
+                </div>
+                <button id="reprocessButton" class="self-end bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-150 ease-in-out h-10">
+                    Reprocess
+                </button>
+            </div>
+        </div>
+
 
         <div id="statusArea" class="mt-6 text-center">
             <div id="loader" class="loader hidden"></div>
@@ -212,6 +230,7 @@
         let segmentsDataForExport = []; // NEW: For CSV/KML
         let coordinatesForPlotting = []; // NEW: For Plot/KML/Calc
         let areaFromFile = null; // NEW: For comparison
+        let curveRLOverrides = {}; // NEW: For R/L correction
         let filePobCoords = null; // *** NEW *** {north: Y, east: X}
 
         // --- CONSTANTS ---
@@ -243,6 +262,10 @@
             const resultsContainer = document.getElementById('resultsContainer'); // NEW
             const resultsArea = document.getElementById('resultsArea'); // NEW
             const traversePlotCanvas = document.getElementById('traversePlot'); // NEW
+            const rlCorrectionPrompt = document.getElementById('rlCorrectionPrompt'); // NEW
+            const rlCorrectionMessage = document.getElementById('rlCorrectionMessage'); // NEW
+            const rlCorrectionSegmentNum = document.getElementById('rlCorrectionSegmentNum'); // NEW
+            const reprocessButton = document.getElementById('reprocessButton'); // NEW
 
             // --- Drag & Drop / File Input Listeners ---
             selectFileButton.addEventListener('click', () => {
@@ -291,12 +314,14 @@
             // --- Main Process Button Listener ---
             processButton.addEventListener('click', async () => {
                 // 1. Reset all outputs
+                curveRLOverrides = {}; // Clear any previous overrides
                 previewArea.value = ''; 
                 parsedOutputForDownload = []; 
                 segmentsDataForExport = [];
                 coordinatesForPlotting = [[0, 0]]; // Start at POB [0,0]
                 areaFromFile = null;
                 filePobCoords = null; // *** NEW ***
+                rlCorrectionPrompt.classList.add('hidden'); // Hide correction prompt
                 
                 // Disable download buttons
                 downloadButton.disabled = true;
@@ -343,13 +368,19 @@
                         // 2. Run the main parsing function
                         const {
                             formattedLines, 
-                            warnings, 
+                            warnings,
+                            rlCorrectionNeeded, // NEW
                             areaSummaryLine, 
                             segmentsData, 
                             parsedAreaValue 
-                        } = parseLegalDescription(rawText, firstCurveRLOverride);
+                        } = parseLegalDescription(rawText, firstCurveRLOverride, curveRLOverrides);
                         
                         // 3. Store results in globals
+                        if (rlCorrectionNeeded) {
+                            promptForCurveRL(rlCorrectionNeeded.segment, `Curve R/L (Segment #${rlCorrectionNeeded.segment}) could not be determined automatically.`);
+                            return; // Stop processing
+                        }
+
                         parsedOutputForDownload = [...formattedLines]; 
                         segmentsDataForExport = [...segmentsData];
                         areaFromFile = parsedAreaValue;
@@ -421,6 +452,11 @@
                 reader.readAsText(file, selectedEncoding); 
             });
 
+            // NEW: Reprocess button listener
+            reprocessButton.addEventListener('click', () => {
+                reprocessWithCorrection();
+            });
+
             // --- Download Button Listeners ---
             downloadButton.addEventListener('click', async () => {
                 if (parsedOutputForDownload.length === 0) {
@@ -467,6 +503,106 @@
             });
         });
 
+        // --- NEW R/L Correction Functions ---
+
+        /**
+         * Displays the UI prompt for the user to select a curve's direction.
+         * @param {number} segmentNumber - The segment number that needs correction.
+         * @param {string} message - The message to display to the user.
+         */
+        function promptForCurveRL(segmentNumber, message) {
+            const rlCorrectionPrompt = document.getElementById('rlCorrectionPrompt');
+            const rlCorrectionMessage = document.getElementById('rlCorrectionMessage');
+            const rlCorrectionSegmentNum = document.getElementById('rlCorrectionSegmentNum');
+            const loader = document.getElementById('loader');
+            const statusMessage = document.getElementById('statusMessage');
+
+            rlCorrectionMessage.textContent = message;
+            rlCorrectionSegmentNum.textContent = segmentNumber;
+            rlCorrectionPrompt.classList.remove('hidden');
+            
+            loader.classList.add('hidden');
+            statusMessage.textContent = 'Action Required: Please specify the curve direction below.';
+        }
+
+        /**
+         * Gathers the user's R/L selection and re-runs the main processing function.
+         */
+        async function reprocessWithCorrection() {
+            const segmentNum = document.getElementById('rlCorrectionSegmentNum').textContent;
+            const selectedRL = document.getElementById('rlCorrectionSelect').value;
+            
+            if (segmentNum && selectedRL) {
+                curveRLOverrides[segmentNum] = selectedRL;
+            }
+
+            // Hide the prompt and re-run the main logic
+            document.getElementById('rlCorrectionPrompt').classList.add('hidden');
+            
+            // This is almost identical to the main processButton handler, but uses existing file data
+            const txtFileInput = document.getElementById('txtFile');
+            const fileEncodingSelect = document.getElementById('fileEncoding');
+            const firstCurveRLSelect = document.getElementById('firstCurveRL');
+            const loader = document.getElementById('loader');
+            const statusMessage = document.getElementById('statusMessage');
+            const previewArea = document.getElementById('previewArea');
+            const warningsContainer = document.getElementById('warningsContainer');
+            const warningsAreaUL = warningsContainer.querySelector('#warningsArea ul');
+            const resultsContainer = document.getElementById('resultsContainer');
+            const resultsArea = document.getElementById('resultsArea');
+            const traversePlotCanvas = document.getElementById('traversePlot');
+
+            // Reset outputs for re-processing
+            previewArea.value = '';
+            parsedOutputForDownload = [];
+            segmentsDataForExport = [];
+            coordinatesForPlotting = [[0, 0]];
+            areaFromFile = null;
+            warningsAreaUL.innerHTML = '';
+            warningsContainer.classList.add('hidden');
+            resultsArea.innerHTML = '';
+            resultsContainer.classList.add('hidden');
+            clearCanvas(traversePlotCanvas);
+            loader.classList.remove('hidden');
+            statusMessage.textContent = 'Re-processing with correction...';
+
+            const file = txtFileInput.files[0];
+            const selectedEncoding = fileEncodingSelect.value === "auto" ? "UTF-8" : fileEncodingSelect.value;
+            const firstCurveRLOverride = firstCurveRLSelect.value;
+
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                try {
+                    const rawText = event.target.result;
+                    filePobCoords = parsePobCoordinates(rawText);
+
+                    const result = parseLegalDescription(rawText, firstCurveRLOverride, curveRLOverrides);
+
+                    if (result.rlCorrectionNeeded) {
+                        promptForCurveRL(result.rlCorrectionNeeded.segment, `Curve R/L (Segment #${result.rlCorrectionNeeded.segment}) could not be determined automatically.`);
+                        return;
+                    }
+
+                    // If successful, populate everything (this part is duplicated from the main handler, could be refactored)
+                    // For brevity, we'll just call a new function to handle the success case.
+                    handleSuccessfulParsing(result);
+
+                } catch (error) {
+                    console.error('Error re-processing file:', error);
+                    statusMessage.textContent = `Error: ${error.message}`;
+                    warningsAreaUL.innerHTML = `<li>${error.message}</li>`;
+                    warningsContainer.classList.remove('hidden');
+                } finally {
+                    loader.classList.add('hidden');
+                }
+            };
+            reader.onerror = () => {
+                statusMessage.textContent = 'Error reading file.';
+                loader.classList.add('hidden');
+            };
+            reader.readAsText(file, selectedEncoding);
+        }
+
         // --- Core Parsing Logic ---
 
         // *** NEW Function ***
@@ -486,11 +622,12 @@
             return null; // Not found or couldn't parse
         }
 
-        function parseLegalDescription(rawText, firstCurveRLOverride) {
+        function parseLegalDescription(rawText, firstCurveRLOverride, rlOverrides = {}) {
             const allLinesFromFile = rawText.split('\n');
             const formattedLines = [];
             const warnings = [];
             let segmentsData = []; // NEW
+            let rlCorrectionNeeded = null; // NEW
             let currentSegmentData = [];
             let segmentType = null; 
             let lastSegmentCourseString = null; 
@@ -515,6 +652,7 @@
                             segmentType, 
                             lastSegmentCourseString, 
                             firstCurveRLOverride, 
+                            rlOverrides, // NEW
                             segmentCounter, 
                             formattedLines.length === 0,
                             currentCoordinates, // Pass current *calculated* position
@@ -535,6 +673,11 @@
                         }
 
                         if (result.text) formattedLines.push(result.text);
+                        // NEW: Check for R/L correction request
+                        if (result.rlCorrectionRequired) {
+                            rlCorrectionNeeded = { segment: currentSegmentNumber };
+                            return { formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue, rlCorrectionNeeded };
+                        }
                         // Add validation warnings 
                         if(result.validationWarnings && result.validationWarnings.length > 0) {
                              warnings.push(...result.validationWarnings);
@@ -561,6 +704,7 @@
                             segmentType, 
                             lastSegmentCourseString, 
                             firstCurveRLOverride, 
+                            rlOverrides, // NEW
                             segmentCounter, 
                             formattedLines.length === 0,
                             currentCoordinates,
@@ -581,6 +725,10 @@
                         }
 
                         if (result.text) formattedLines.push(result.text);
+                        if (result.rlCorrectionRequired) {
+                            rlCorrectionNeeded = { segment: currentSegmentNumber };
+                            return { formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue, rlCorrectionNeeded };
+                        }
                         if(result.validationWarnings && result.validationWarnings.length > 0) {
                              warnings.push(...result.validationWarnings);
                         }
@@ -610,6 +758,7 @@
                      segmentType, 
                      lastSegmentCourseString, 
                      firstCurveRLOverride, 
+                     rlOverrides, // NEW
                      segmentCounter, 
                      formattedLines.length === 0,
                      currentCoordinates,
@@ -630,6 +779,10 @@
                 }
 
                 if (result.text) formattedLines.push(result.text);
+                if (result.rlCorrectionRequired) {
+                    rlCorrectionNeeded = { segment: currentSegmentNumber };
+                    return { formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue, rlCorrectionNeeded };
+                }
                 if(result.validationWarnings && result.validationWarnings.length > 0) {
                      warnings.push(...result.validationWarnings);
                 }
@@ -667,7 +820,7 @@
                  warnings.push("Area summary line was not generated. Check input file for 'Area: ... Sq. Ft.' format.");
             }
             
-            return {formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue}; 
+            return {formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue, rlCorrectionNeeded}; 
         }
 
         // *** NEW ***
@@ -730,12 +883,13 @@
              return null; // Not found
         }
 
-        function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, currentSegmentNumber, isFirstSegment, startCoordinates, lastSegmentWasCurve) {
+        function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, rlOverrides, currentSegmentNumber, isFirstSegment, startCoordinates, lastSegmentWasCurve) {
             let outputText = "";
             let warning = null;
             let validationWarnings = []; // *** NEW ***
             let lastCourseForNextSegment = null; 
             let endCoordinates = null; 
+            let rlCorrectionRequired = false; // NEW
             let segmentDataObject = { segment: currentSegmentNumber, type: type }; 
             let tangencyStatus = null; 
             const segmentContext = `(Segment #${currentSegmentNumber})`;
@@ -890,7 +1044,9 @@
 
 
                     // --- R/L Detection Layered Logic ---
-                    if (curveRLOverride !== "auto" && isFirstSegment) { 
+                    if (rlOverrides[currentSegmentNumber]) { // NEW: Check for manual override first
+                        rl_calc = rlOverrides[currentSegmentNumber];
+                    } else if (curveRLOverride !== "auto" && isFirstSegment) { 
                         rl_calc = curveRLOverride;
                     } else {
                         // 1. Deflection Method (Primary)
@@ -952,9 +1108,10 @@
                         } else {
                             rl_calc = null;
                             rl_display = "R/L";
-                            rlVerifyLabelText = "(R/L Verify)";
-                            if (warning === null) warning = "";
-                             warning += (warning ? " " : "") + `Curve R/L ${segmentContext} could not be determined automatically.`;
+                            // NEW: Instead of just a warning, signal that we need user input.
+                            rlCorrectionRequired = true;
+                            // We will stop processing at a higher level, so no need for a warning here.
+                            // The calling function will use the segment number to prompt the user.
                         }
                     } // End if not override
                     
@@ -1000,6 +1157,7 @@
                 text: outputText, 
                 warning: warning ? warning.trim() : null, 
                 validationWarnings: validationWarnings, // *** NEW ***
+                rlCorrectionRequired: rlCorrectionRequired, // NEW
                 lastCourse: lastCourseForNextSegment,
                 endCoordinates: endCoordinates, 
                 segmentData: segmentDataObject, 
@@ -1179,6 +1337,74 @@
             }
             
             return Math.abs(area / 2);
+        }
+
+        // NEW: Refactored success handler to be callable from multiple places
+        function handleSuccessfulParsing(result) {
+            const { formattedLines, warnings, areaSummaryLine, segmentsData, parsedAreaValue } = result;
+
+            const previewArea = document.getElementById('previewArea');
+            const downloadButton = document.getElementById('downloadButton');
+            const downloadCsvButton = document.getElementById('downloadCsvButton');
+            const downloadKmlButton = document.getElementById('downloadKmlButton');
+            const warningsContainer = document.getElementById('warningsContainer');
+            const warningsAreaUL = warningsContainer.querySelector('#warningsArea ul');
+            const statusMessage = document.getElementById('statusMessage');
+            const resultsContainer = document.getElementById('resultsContainer');
+            const traversePlotCanvas = document.getElementById('traversePlot');
+
+            // Store results in globals
+            parsedOutputForDownload = [...formattedLines];
+            segmentsDataForExport = [...segmentsData];
+            areaFromFile = parsedAreaValue;
+
+            if (areaSummaryLine) {
+                if (parsedOutputForDownload.length > 0 && parsedOutputForDownload[parsedOutputForDownload.length - 1].trim() !== "") {
+                    parsedOutputForDownload.push("");
+                }
+                parsedOutputForDownload.push(areaSummaryLine);
+            }
+
+            previewArea.value = parsedOutputForDownload.join('\n');
+
+            // Update UI (Buttons)
+            if (parsedOutputForDownload.length > 0) {
+                downloadButton.disabled = false;
+                downloadButton.classList.replace('bg-gray-400', 'bg-[#003366]');
+                downloadButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
+            }
+            if (segmentsDataForExport.length > 0) {
+                downloadCsvButton.disabled = false;
+                downloadCsvButton.classList.replace('bg-gray-400', 'bg-[#003366]');
+                downloadCsvButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
+            }
+            if (coordinatesForPlotting.length > 1) {
+                downloadKmlButton.disabled = false;
+                downloadKmlButton.classList.replace('bg-gray-400', 'bg-[#003366]');
+                downloadKmlButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
+            }
+
+            // Update UI (Warnings)
+            if (warnings.length > 0) {
+                warnings.forEach(warning => {
+                    const li = document.createElement('li');
+                    li.textContent = warning;
+                    warningsAreaUL.appendChild(li);
+                });
+                warningsContainer.classList.remove('hidden');
+                statusMessage.textContent = 'Processing complete. Please review warnings.';
+            } else if (parsedOutputForDownload.length > 0) {
+                statusMessage.textContent = 'Processing complete. Ready to download.';
+            } else {
+                statusMessage.textContent = 'Processing complete. No data parsed.';
+            }
+
+            // Run Calculations & Visualization
+            if (coordinatesForPlotting.length > 1) {
+                calculateAndDisplayResults(coordinatesForPlotting, areaFromFile);
+                resultsContainer.classList.remove('hidden');
+                drawTraverse(traversePlotCanvas, coordinatesForPlotting);
+            }
         }
 
         // Display Calculation Results
@@ -1406,4 +1632,3 @@
     </script>
 </body>
 </html>
-
