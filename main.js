@@ -366,6 +366,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Smoothly scroll the editor into view
             boundsEditorContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
             // Redraw with highlight
+            highlightTextInPreview(selectedSegmentIndex);
             drawTraverse(traversePlotCanvas, coordinatesForPlotting, uncertainSegmentIndices, selectedSegmentIndex); 
         }
     });
@@ -1655,6 +1656,7 @@ function closeBoundsEditor() {
     boundsEditorContainer.classList.add('hidden');
     selectedSegmentIndex = null; // Deselect
     // Redraw to remove highlight
+    highlightTextInPreview(null); // NEW: Clear text highlight
     drawTraverse(document.getElementById('traversePlot'), coordinatesForPlotting, uncertainSegmentIndices, null);
 }
 
@@ -1695,6 +1697,43 @@ function findClickedSegment(canvas, coordinates, clickX, clickY) {
         }
     }
     return closestSegmentIndex;
+}
+
+// NEW: Highlight corresponding line in the preview text area
+function highlightTextInPreview(segmentIndex) {
+    const previewArea = document.getElementById('previewArea');
+    const pocText = document.getElementById('pocText').value.trim();
+
+    // If no segment is selected (e.g., deselect), clear selection and blur
+    if (segmentIndex === null) {
+        // Move cursor to start and remove focus to hide selection
+        previewArea.setSelectionRange(0, 0);
+        previewArea.blur();
+        return;
+    }
+
+    const lines = previewArea.value.split('\n');
+
+    // Calculate the line index in the textarea.
+    // If POC text exists, it adds that text and a blank line, so we offset by 2.
+    const offset = pocText ? 2 : 0;
+    const lineIndex = segmentIndex - 1 + offset; // segmentIndex is 1-based
+
+    if (lineIndex < 0 || lineIndex >= lines.length) {
+        console.warn(`Cannot highlight line for segment ${segmentIndex}, index out of bounds.`);
+        return;
+    }
+
+    // Calculate start and end character positions for the selection
+    let start = 0;
+    for (let i = 0; i < lineIndex; i++) {
+        start += lines[i].length + 1; // +1 for the newline character
+    }
+    const end = start + lines[lineIndex].length;
+
+    // Set the selection and scroll into view
+    previewArea.focus(); // The textarea must be focused to show the selection
+    previewArea.setSelectionRange(start, end);
 }
 
 // --- Download & Formatting Functions ---
