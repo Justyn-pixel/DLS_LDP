@@ -5,6 +5,8 @@ let coordinatesForPlotting = []; // NEW: For Plot/KML/Calc
 let areaFromFile = null; // NEW: For comparison
 let filePobCoords = null; // *** NEW *** {north: Y, east: X}
 let uncertainSegmentIndices = []; // NEW: To track segments for highlighting
+let segmentBounds = {}; // NEW: To store bound text, e.g., { 1: "along Main St", 2: "..." }
+let selectedSegmentIndex = null; // NEW: To track the clicked segment (1-based index)
 
 // --- CONSTANTS ---
 const R2D = 180 / Math.PI;
@@ -38,6 +40,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const copyButton = document.getElementById('copyButton'); // NEW
     const manualControlsContainer = document.getElementById('manualControlsContainer'); // NEW
 
+    // NEW: Bounds Editor elements
+    const boundsEditorContainer = document.getElementById('boundsEditorContainer');
+    const boundsEditorSegmentLabel = document.getElementById('boundsEditorSegmentLabel');
+    const boundsEditorText = document.getElementById('boundsEditorText');
+    const applyBoundsButton = document.getElementById('applyBoundsButton');
+    const closeBoundsButton = document.getElementById('closeBoundsButton');
     // --- Drag & Drop / File Input Listeners ---
     selectFileButton.addEventListener('click', () => {
         txtFileInput.click();
@@ -96,6 +104,8 @@ document.addEventListener('DOMContentLoaded', () => {
         areaFromFile = null;
         filePobCoords = null; // *** NEW ***
         uncertainSegmentIndices = []; // NEW: Reset highlighted segments
+        segmentBounds = {}; // NEW: Reset bounds
+        selectedSegmentIndex = null; // NEW: Reset selection
 
         // Disable download buttons
         downloadButton.disabled = true;
@@ -116,6 +126,7 @@ document.addEventListener('DOMContentLoaded', () => {
         resultsContainer.classList.add('hidden'); // NEW
         manualControlsContainer.innerHTML = ''; // NEW: Clear manual controls
         clearCanvas(traversePlotCanvas); // NEW
+        boundsEditorContainer.classList.add('hidden'); // NEW: Hide bounds editor
 
         loader.classList.remove('hidden');
 
@@ -149,18 +160,28 @@ document.addEventListener('DOMContentLoaded', () => {
                     parsedAreaValue
                 } = parseLegalDescription(rawText, firstCurveRLOverride);
 
-                // 3. Store results in globals
-                parsedOutputForDownload = [...formattedLines];
+                // 3. Get POC text and construct the final output
+                const pocTextArea = document.getElementById('pocText');
+                const pocText = pocTextArea.value.trim();
+
+                let finalOutputLines = [];
+
+                if (pocText) {
+                    finalOutputLines.push(pocText);
+                    finalOutputLines.push(""); // Add a blank line for spacing
+                }
+
+                finalOutputLines.push(...formattedLines);
+
+                // Store results in globals
+                parsedOutputForDownload = [...finalOutputLines];
                 segmentsDataForExport = [...segmentsData];
                 areaFromFile = parsedAreaValue;
 
                 if (areaSummaryLine) {
-                    if (parsedOutputForDownload.length > 0 && parsedOutputForDownload[parsedOutputForDownload.length - 1].trim() !== "") {
-                        parsedOutputForDownload.push("");
-                    }
                     parsedOutputForDownload.push(areaSummaryLine);
                 }
-
+                
                 previewArea.value = parsedOutputForDownload.join('\n');
 
                 // 4. Update UI (Buttons)
@@ -213,7 +234,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     // *** END NEW ***
                     resultsContainer.classList.remove('hidden');
-                    drawTraverse(traversePlotCanvas, coordinatesForPlotting, uncertainSegmentIndices); // Pass uncertain segments
+                    drawTraverse(traversePlotCanvas, coordinatesForPlotting, uncertainSegmentIndices, selectedSegmentIndex); // Pass uncertain segments
                 }
 
             } catch (error) {
@@ -294,6 +315,30 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
     });
+
+    // --- NEW: Bounds Editor Listeners ---
+    traversePlotCanvas.addEventListener('click', (event) => {
+        if (coordinatesForPlotting.length < 2) return;
+
+        const rect = traversePlotCanvas.getBoundingClientRect();
+        const clickX = event.clientX - rect.left;
+        const clickY = event.clientY - rect.top;
+
+        const clickedSegment = findClickedSegment(traversePlotCanvas, coordinatesForPlotting, clickX, clickY);
+
+        if (clickedSegment !== null) {
+            selectedSegmentIndex = clickedSegment;
+            openBoundsEditor(selectedSegmentIndex);
+            drawTraverse(traversePlotCanvas, coordinatesForPlotting, uncertainSegmentIndices, selectedSegmentIndex); // Redraw with highlight
+        }
+    });
+
+    applyBoundsButton.addEventListener('click', () => {
+        segmentBounds[selectedSegmentIndex] = boundsEditorText.value.trim();
+        reprocessWithOverrides(); // This will re-run everything with the new bound text
+    });
+
+    closeBoundsButton.addEventListener('click', closeBoundsEditor);
 });
 
 // --- Core Parsing Logic ---
@@ -367,6 +412,14 @@ function parseLegalDescription(rawText, firstCurveRLOverride) {
             }
             formattedLines.push(lastLine);
         }
+
+        // *** NEW: Add bound text if it exists for this segment ***
+        const boundText = segmentBounds[segCounter];
+        if (boundText && result.text) {
+            // Replace the closing semicolon with the bound text and a new semicolon
+            result.text = result.text.replace(/;$/, `, ${boundText};`);
+        }
+        // *** END NEW ***
 
         if (result.text) formattedLines.push(result.text);
         if (result.validationWarnings && result.validationWarnings.length > 0) {
@@ -604,7 +657,7 @@ async function reprocessWithOverrides() {
     areaFromFile = parsedAreaValue;
     document.getElementById('previewArea').value = parsedOutputForDownload.join('\n');
     calculateAndDisplayResults(coordinatesForPlotting, areaFromFile);
-    drawTraverse(document.getElementById('traversePlot'), coordinatesForPlotting, uncertainSegmentIndices);
+    drawTraverse(document.getElementById('traversePlot'), coordinatesForPlotting, uncertainSegmentIndices, selectedSegmentIndex);
 
     loader.classList.add('hidden');
 }
@@ -1302,7 +1355,7 @@ function clearCanvas(canvas) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 }
 
-function drawTraverse(canvas, coordinates, segmentsToHighlight = []) {
+function drawTraverse(canvas, coordinates, segmentsToHighlight = [], selectedSegment = null) {
     if (coordinates.length < 1) return;
     const ctx = canvas.getContext('2d');
     clearCanvas(canvas);
@@ -1362,8 +1415,17 @@ function drawTraverse(canvas, coordinates, segmentsToHighlight = []) {
 
     // 4. Draw segments (loop from segment 1)
     for (let i = 1; i < coordinates.length; i++) {
-        const isHighlighted = segmentsToHighlight.includes(i);
-        ctx.strokeStyle = isHighlighted ? '#f97316' : '#333'; // Orange for highlight, dark gray otherwise
+        const isUncertain = segmentsToHighlight.includes(i);
+        const isSelected = (i === selectedSegment);
+
+        if (isSelected) {
+            ctx.strokeStyle = '#003366'; // Blue for selected
+        } else if (isUncertain) {
+            ctx.strokeStyle = '#f97316'; // Orange for uncertain
+        } else {
+            ctx.strokeStyle = '#333'; // Dark gray for default
+        }
+        const isHighlighted = isUncertain || isSelected;
         ctx.lineWidth = isHighlighted ? 4 : 2;
 
         ctx.beginPath();
@@ -1374,17 +1436,219 @@ function drawTraverse(canvas, coordinates, segmentsToHighlight = []) {
         ctx.stroke();
     }
 
-    // 5. Draw POB and POE
-    ctx.fillStyle = 'green'; // POB
-    ctx.beginPath();
-    ctx.arc(startX, startY, 4, 0, 2 * Math.PI);
-    ctx.fill();
+    // 5. Draw all vertices
+    coordinates.forEach((coord, i) => {
+        const [px, py] = transform(coord[0], coord[1]);
+        ctx.beginPath();
+        ctx.arc(px, py, 4, 0, 2 * Math.PI);
 
-    ctx.fillStyle = 'red'; // POE
-    const [endX, endY] = transform(coordinates[coordinates.length - 1][0], coordinates[coordinates.length - 1][1]);
-    ctx.beginPath();
-    ctx.arc(endX, endY, 4, 0, 2 * Math.PI);
-    ctx.fill();
+        if (i === 0) {
+            ctx.fillStyle = 'green'; // POB
+        } else if (i === coordinates.length - 1) {
+            // If start and end points are the same, POE is also green (closed traverse)
+            const startPt = coordinates[0];
+            const endPt = coordinates[coordinates.length - 1];
+            if (Math.abs(startPt[0] - endPt[0]) < GEOMETRY_TOLERANCE && Math.abs(startPt[1] - endPt[1]) < GEOMETRY_TOLERANCE) {
+                 ctx.fillStyle = 'green';
+            } else {
+                 ctx.fillStyle = 'red'; // POE
+            }
+        } else {
+            ctx.fillStyle = 'black'; // Intermediate points
+        }
+        ctx.fill();
+    });
+}
+
+// --- NEW: Bounds Editor Functions ---
+
+function openBoundsEditor(segmentIndex) {
+    const boundsEditorContainer = document.getElementById('boundsEditorContainer');
+    const boundsEditorSegmentLabel = document.getElementById('boundsEditorSegmentLabel');
+    const boundsEditorText = document.getElementById('boundsEditorText');
+
+    boundsEditorSegmentLabel.textContent = `Adding bound for Segment #${segmentIndex}.`;
+    boundsEditorText.value = segmentBounds[segmentIndex] || ''; // Populate with existing text or empty
+    boundsEditorContainer.classList.remove('hidden');
+    boundsEditorText.focus();
+}
+
+function closeBoundsEditor() {
+    const boundsEditorContainer = document.getElementById('boundsEditorContainer');
+    boundsEditorContainer.classList.add('hidden');
+    selectedSegmentIndex = null; // Deselect
+    // Redraw to remove highlight
+    drawTraverse(document.getElementById('traversePlot'), coordinatesForPlotting, uncertainSegmentIndices, null);
+}
+
+function findClickedSegment(canvas, coordinates, clickX, clickY) {
+    // This function finds the closest segment to a click
+    let closestSegmentIndex = null;
+    let minDistance = 15; // Click tolerance in pixels
+
+    // Re-create the transform function from drawTraverse
+    let minPlotX = coordinates[0][0], maxX = coordinates[0][0];
+    let minPlotY = coordinates[0][1], maxY = coordinates[0][1];
+    coordinates.forEach(([x, y]) => {
+        if (x < minPlotX) minPlotX = x; if (x > maxX) maxX = x;
+        if (y < minPlotY) minPlotY = y; if (y > maxY) maxY = y;
+    });
+    const padding = 20;
+    const plotWidth = canvas.width - 2 * padding;
+    const plotHeight = canvas.height - 2 * padding;
+    const dataWidth = maxX - minPlotX || 1;
+    const dataHeight = maxY - minPlotY || 1;
+    const scale = Math.min(plotWidth / dataWidth, plotHeight / dataHeight);
+    const transform = (x, y) => [padding + (x - minPlotX) * scale, padding + (maxY - y) * scale];
+
+    for (let i = 1; i < coordinates.length; i++) {
+        const [p1x, p1y] = transform(coordinates[i - 1][0], coordinates[i - 1][1]);
+        const [p2x, p2y] = transform(coordinates[i][0], coordinates[i][1]);
+
+        // Simplified distance from point to line segment
+        const dx = p2x - p1x;
+        const dy = p2y - p1y;
+        const lenSq = dx * dx + dy * dy;
+        if (lenSq === 0) continue; // Skip zero-length segments
+
+        let t = ((clickX - p1x) * dx + (clickY - p1y) * dy) / lenSq;
+        t = Math.max(0, Math.min(1, t)); // Clamp to segment
+
+        const closestX = p1x + t * dx;
+        const closestY = p1y + t * dy;
+        const dist = Math.sqrt(Math.pow(clickX - closestX, 2) + Math.pow(clickY - closestY, 2));
+
+        if (dist < minDistance) {
+            minDistance = dist;
+            closestSegmentIndex = i; // 1-based index
+        }
+    }
+    return closestSegmentIndex;
+}
+
+// --- Download & Formatting Functions ---
+
+async function generateAndDownloadTxt(formattedLinesArray, fileName) {
+    try {
+        const textContent = formattedLinesArray.join('\n');
+        const blob = new Blob([textContent], {
+            type: "text/plain;charset=utf-8"
+        });
+        saveAs(blob, fileName);
+    } catch (error) {
+        console.error("Error generating TXT file:", error);
+        throw new Error('Error generating text file.');
+    }
+}
+
+// NEW: Download CSV
+async function generateAndDownloadCsv(segmentsData) {
+    try {
+        const headers = [
+            "Segment", "Type", "Course", "Length",
+            "Radius", "Delta", "Chord Course", "Chord Length", "R/L"
+        ];
+        let csvContent = headers.join(',') + '\n';
+
+        segmentsData.forEach(seg => {
+            const row = [
+                seg.segment || '',
+                seg.type || '',
+                `"${seg.course || ''}"`,
+                seg.length || '',
+                seg.radius || '',
+                `"${seg.delta || ''}"`,
+                `"${seg.chordCourse || ''}"`,
+                seg.chordLength || '',
+                seg.rl || ''
+            ];
+            csvContent += row.join(',') + '\n';
+        });
+
+        const blob = new Blob([csvContent], {
+            type: "text/csv;charset=utf-8"
+        });
+        saveAs(blob, "legal_description_segments.csv");
+    } catch (error) {
+        console.error("Error generating CSV file:", error);
+        throw new Error('Error generating CSV file.');
+    }
+}
+
+// NEW: Download DXF
+async function generateAndDownloadDxf(coordinates) {
+    try {
+        let dxfContent = `  0
+SECTION
+  2
+HEADER
+  9
+$ACADVER
+  1
+AC1009
+  0
+ENDSEC
+  0
+SECTION
+  2
+TABLES
+  0
+TABLE
+  2
+LAYER
+  0
+LAYER
+  2
+0
+ 70
+     0
+ 62
+     7
+  6
+CONTINUOUS
+  0
+ENDTAB
+  0
+ENDSEC
+  0
+SECTION
+  2
+ENTITIES
+  0
+POLYLINE
+  8
+0
+ 66
+     1
+ 70
+     1
+`;
+        coordinates.forEach(([x, y]) => {
+            dxfContent += `  0
+VERTEX
+  8
+0
+ 10
+${x.toFixed(4)}
+ 20
+${y.toFixed(4)}
+  0
+`;
+        });
+
+        dxfContent += `SEQEND
+  0
+ENDSEC
+  0
+EOF
+`;
+
+        const blob = new Blob([dxfContent], { type: "application/dxf;charset=utf-8" });
+        saveAs(blob, "legal_description_plot.dxf");
+    } catch (error) {
+        console.error("Error generating DXF file:", error);
+        throw new Error('Error generating DXF file.');
+    }
 }
 
 // --- Download & Formatting Functions ---
