@@ -363,8 +363,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     applyBoundsButton.addEventListener('click', () => {
-        segmentBounds[selectedSegmentIndex] = boundsEditorText.value.trim();
+        const boundText = boundsEditorText.value.trim();
+        if (boundText) {
+            segmentBounds[selectedSegmentIndex] = boundText;
+        } else {
+            delete segmentBounds[selectedSegmentIndex]; // Remove bound if text is cleared
+        }
         reprocessWithOverrides(); // This will re-run everything with the new bound text
+        closeBoundsEditor(); // Automatically close the editor after applying
     });
 
     // --- NEW: Plot View Listeners ---
@@ -386,15 +392,24 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     traversePlotCanvas.addEventListener('mousedown', (event) => {
+        // Only start panning on left-click
+        if (event.button !== 0) return;
         plotView.isPanning = true;
         plotView.lastPanX = event.clientX;
         plotView.lastPanY = event.clientY;
         traversePlotCanvas.classList.replace('cursor-grab', 'cursor-grabbing');
     });
 
-    traversePlotCanvas.addEventListener('mouseup', () => {
+    traversePlotCanvas.addEventListener('mouseup', (event) => {
+        // Only stop panning on left-click
+        if (event.button !== 0) return;
         plotView.isPanning = false;
         traversePlotCanvas.classList.replace('cursor-grabbing', 'cursor-grab');
+    });
+
+    traversePlotCanvas.addEventListener('contextmenu', (event) => {
+        // Prevent right-click context menu from appearing on the canvas
+        event.preventDefault();
     });
 
     traversePlotCanvas.addEventListener('mouseleave', () => {
@@ -1521,9 +1536,12 @@ function drawTraverse(canvas, coordinates, segmentsToHighlight = [], selectedSeg
     for (let i = 1; i < coordinates.length; i++) {
         const isUncertain = segmentsToHighlight.includes(i);
         const isSelected = (i === selectedSegment);
+        const hasBound = segmentBounds.hasOwnProperty(i) && segmentBounds[i] !== '';
 
         if (isSelected) {
             ctx.strokeStyle = '#FFC72C'; // Yellow for selected
+        } else if (hasBound) {
+            ctx.strokeStyle = '#16a34a'; // Green for segments with bounds
         } else if (isUncertain) {
             ctx.strokeStyle = '#f97316'; // Orange for uncertain
         } else {
