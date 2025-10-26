@@ -2,11 +2,22 @@
 let parsedOutputForDownload = [];
 let segmentsDataForExport = []; // NEW: For CSV/KML
 let coordinatesForPlotting = []; // NEW: For Plot/KML/Calc
+let originalParsedOutputWithoutPoc = []; // NEW: To store the base parsed text
 let areaFromFile = null; // NEW: For comparison
 let filePobCoords = null; // *** NEW *** {north: Y, east: X}
 let uncertainSegmentIndices = []; // NEW: To track segments for highlighting
 let segmentBounds = {}; // NEW: To store bound text, e.g., { 1: "along Main St", 2: "..." }
 let selectedSegmentIndex = null; // NEW: To track the clicked segment (1-based index)
+
+// --- NEW: Plot View State ---
+let plotView = {
+    scale: 1.0,
+    offsetX: 0,
+    offsetY: 0,
+    isPanning: false,
+    lastPanX: 0,
+    lastPanY: 0
+};
 
 // --- CONSTANTS ---
 const R2D = 180 / Math.PI;
@@ -37,10 +48,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const resultsContainer = document.getElementById('resultsContainer'); // NEW
     const resultsArea = document.getElementById('resultsArea'); // NEW
     const traversePlotCanvas = document.getElementById('traversePlot'); // NEW
+    const resetPlotViewButton = document.getElementById('resetPlotView'); // NEW
     const copyButton = document.getElementById('copyButton'); // NEW
     const manualControlsContainer = document.getElementById('manualControlsContainer'); // NEW
 
     // NEW: Bounds Editor elements
+    const pocTextArea = document.getElementById('pocText');
+    const addPocButton = document.getElementById('addPocButton');
     const boundsEditorContainer = document.getElementById('boundsEditorContainer');
     const boundsEditorSegmentLabel = document.getElementById('boundsEditorSegmentLabel');
     const boundsEditorText = document.getElementById('boundsEditorText');
@@ -101,14 +115,17 @@ document.addEventListener('DOMContentLoaded', () => {
         coordinatesForPlotting = [
             [0, 0]
         ]; // Start at POB [0,0]
+        originalParsedOutputWithoutPoc = []; // NEW: Reset
         areaFromFile = null;
         filePobCoords = null; // *** NEW ***
         uncertainSegmentIndices = []; // NEW: Reset highlighted segments
         segmentBounds = {}; // NEW: Reset bounds
         selectedSegmentIndex = null; // NEW: Reset selection
+        resetPlotView(); // NEW: Reset zoom/pan
 
         // Disable download buttons
         downloadButton.disabled = true;
+        addPocButton.disabled = true; // NEW
         downloadCsvButton.disabled = true; // NEW
         downloadDxfButton.disabled = true; // NEW
         downloadButton.classList.replace('bg-[#003366]', 'bg-gray-400');
@@ -160,25 +177,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     parsedAreaValue
                 } = parseLegalDescription(rawText, firstCurveRLOverride);
 
-                // 3. Get POC text and construct the final output
-                const pocTextArea = document.getElementById('pocText');
-                const pocText = pocTextArea.value.trim();
-
-                let finalOutputLines = [];
-
-                if (pocText) {
-                    finalOutputLines.push(pocText);
-                    finalOutputLines.push(""); // Add a blank line for spacing
-                }
-
-                finalOutputLines.push(...formattedLines);
-
-                // Store results in globals
-                parsedOutputForDownload = [...finalOutputLines];
+                // 3. Store results in globals
+                originalParsedOutputWithoutPoc = [...formattedLines]; // NEW
+                parsedOutputForDownload = [...formattedLines]; // Initially, the output is just the parsed lines
                 segmentsDataForExport = [...segmentsData];
                 areaFromFile = parsedAreaValue;
 
                 if (areaSummaryLine) {
+                    // Add the area line to both the original and the downloadable output
+                    originalParsedOutputWithoutPoc.push(areaSummaryLine);
                     parsedOutputForDownload.push(areaSummaryLine);
                 }
                 
@@ -187,6 +194,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // 4. Update UI (Buttons)
                 if (parsedOutputForDownload.length > 0) {
                     downloadButton.disabled = false;
+                    addPocButton.disabled = false; // NEW: Enable POC button
                     downloadButton.classList.replace('bg-gray-400', 'bg-[#003366]');
                     downloadButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
                 }
@@ -316,6 +324,27 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // --- NEW: POC Button Listener ---
+    addPocButton.addEventListener('click', () => {
+        const pocText = pocTextArea.value.trim();
+        let finalOutputLines = [];
+
+        if (pocText) {
+            finalOutputLines.push(pocText);
+            finalOutputLines.push(""); // Add a blank line for spacing
+        }
+
+        // Rebuild the output from the original parsed data + the area summary
+        finalOutputLines.push(...originalParsedOutputWithoutPoc);
+
+        // Update the global for download and the preview area
+        parsedOutputForDownload = finalOutputLines;
+        previewArea.value = parsedOutputForDownload.join('\n');
+
+        // Give user feedback
+        statusMessage.textContent = 'Point of Commencement updated.';
+    });
+
     // --- NEW: Bounds Editor Listeners ---
     traversePlotCanvas.addEventListener('click', (event) => {
         if (coordinatesForPlotting.length < 2) return;
@@ -336,6 +365,57 @@ document.addEventListener('DOMContentLoaded', () => {
     applyBoundsButton.addEventListener('click', () => {
         segmentBounds[selectedSegmentIndex] = boundsEditorText.value.trim();
         reprocessWithOverrides(); // This will re-run everything with the new bound text
+    });
+
+    // --- NEW: Plot View Listeners ---
+    traversePlotCanvas.addEventListener('wheel', (event) => {
+        event.preventDefault();
+        const zoomFactor = 1.1;
+        const rect = traversePlotCanvas.getBoundingClientRect();
+        const mouseX = event.clientX - rect.left;
+        const mouseY = event.clientY - rect.top;
+
+        const oldScale = plotView.scale;
+        plotView.scale *= (event.deltaY < 0) ? zoomFactor : 1 / zoomFactor;
+
+        // Zoom towards the cursor
+        plotView.offsetX = mouseX - (mouseX - plotView.offsetX) * (plotView.scale / oldScale);
+        plotView.offsetY = mouseY - (mouseY - plotView.offsetY) * (plotView.scale / oldScale);
+
+        drawTraverse(traversePlotCanvas, coordinatesForPlotting, uncertainSegmentIndices, selectedSegmentIndex);
+    });
+
+    traversePlotCanvas.addEventListener('mousedown', (event) => {
+        plotView.isPanning = true;
+        plotView.lastPanX = event.clientX;
+        plotView.lastPanY = event.clientY;
+        traversePlotCanvas.classList.replace('cursor-grab', 'cursor-grabbing');
+    });
+
+    traversePlotCanvas.addEventListener('mouseup', () => {
+        plotView.isPanning = false;
+        traversePlotCanvas.classList.replace('cursor-grabbing', 'cursor-grab');
+    });
+
+    traversePlotCanvas.addEventListener('mouseleave', () => {
+        plotView.isPanning = false;
+        traversePlotCanvas.classList.replace('cursor-grabbing', 'cursor-grab');
+    });
+
+    traversePlotCanvas.addEventListener('mousemove', (event) => {
+        if (!plotView.isPanning) return;
+        const dx = event.clientX - plotView.lastPanX;
+        const dy = event.clientY - plotView.lastPanY;
+        plotView.offsetX += dx;
+        plotView.offsetY += dy;
+        plotView.lastPanX = event.clientX;
+        plotView.lastPanY = event.clientY;
+        drawTraverse(traversePlotCanvas, coordinatesForPlotting, uncertainSegmentIndices, selectedSegmentIndex);
+    });
+
+    resetPlotViewButton.addEventListener('click', () => {
+        resetPlotView();
+        drawTraverse(traversePlotCanvas, coordinatesForPlotting, uncertainSegmentIndices, selectedSegmentIndex);
     });
 
     closeBoundsButton.addEventListener('click', closeBoundsEditor);
@@ -648,6 +728,7 @@ async function reprocessWithOverrides() {
     // Update all globals and UI elements just like in the main process button
     parsedOutputForDownload = [...formattedLines];
     if (areaSummaryLine) {
+        // This blank line logic might be redundant now, but safe to keep
         if (parsedOutputForDownload.length > 0 && parsedOutputForDownload[parsedOutputForDownload.length - 1].trim() !== "") {
             parsedOutputForDownload.push("");
         }
@@ -655,6 +736,11 @@ async function reprocessWithOverrides() {
     }
     segmentsDataForExport = [...segmentsData];
     areaFromFile = parsedAreaValue;
+
+    // NEW: Update the base output and then re-apply the POC
+    originalParsedOutputWithoutPoc = [...parsedOutputForDownload];
+    document.getElementById('addPocButton').click(); // Trigger a POC update
+
     document.getElementById('previewArea').value = parsedOutputForDownload.join('\n');
     calculateAndDisplayResults(coordinatesForPlotting, areaFromFile);
     drawTraverse(document.getElementById('traversePlot'), coordinatesForPlotting, uncertainSegmentIndices, selectedSegmentIndex);
@@ -1355,6 +1441,17 @@ function clearCanvas(canvas) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 }
 
+function resetPlotView() {
+    plotView = {
+        scale: 1.0,
+        offsetX: 0,
+        offsetY: 0,
+        isPanning: false,
+        lastPanX: 0,
+        lastPanY: 0
+    };
+}
+
 function drawTraverse(canvas, coordinates, segmentsToHighlight = [], selectedSegment = null) {
     if (coordinates.length < 1) return;
     const ctx = canvas.getContext('2d');
@@ -1393,14 +1490,21 @@ function drawTraverse(canvas, coordinates, segmentsToHighlight = [], selectedSeg
     const effectiveDataHeight = dataHeight === 0 ? 1 : dataHeight;
 
     const scaleX = plotWidth / effectiveDataWidth;
-    const scaleY = plotHeight / effectiveDataHeight;
-    const scale = Math.min(scaleX, scaleY);
+    const scaleY = plotHeight / effectiveDataHeight; 
+    const baseScale = Math.min(scaleX, scaleY);
+
+    // Center the initial drawing if not panned/zoomed
+    if (plotView.scale === 1.0 && plotView.offsetX === 0 && plotView.offsetY === 0) {
+        plotView.offsetX = padding + (plotWidth - dataWidth * baseScale) / 2;
+        plotView.offsetY = padding + (plotHeight - dataHeight * baseScale) / 2;
+    }
 
     // 3. Create transform function
     // We flip Y because canvas (0,0) is top-left, but survey (0,0) is bottom-left
     const transform = (x, y) => {
-        const tx = padding + (x - minX) * scale;
-        const ty = padding + (maxY - y) * scale; // Flip Y-axis
+        const finalScale = baseScale * plotView.scale;
+        const tx = (x - minX) * finalScale + plotView.offsetX;
+        const ty = (maxY - y) * finalScale + plotView.offsetY; // Flip Y-axis
         return [tx, ty];
     };
 
@@ -1419,7 +1523,7 @@ function drawTraverse(canvas, coordinates, segmentsToHighlight = [], selectedSeg
         const isSelected = (i === selectedSegment);
 
         if (isSelected) {
-            ctx.strokeStyle = '#003366'; // Blue for selected
+            ctx.strokeStyle = '#FFC72C'; // Yellow for selected
         } else if (isUncertain) {
             ctx.strokeStyle = '#f97316'; // Orange for uncertain
         } else {
@@ -1498,8 +1602,15 @@ function findClickedSegment(canvas, coordinates, clickX, clickY) {
     const plotHeight = canvas.height - 2 * padding;
     const dataWidth = maxX - minPlotX || 1;
     const dataHeight = maxY - minPlotY || 1;
-    const scale = Math.min(plotWidth / dataWidth, plotHeight / dataHeight);
-    const transform = (x, y) => [padding + (x - minPlotX) * scale, padding + (maxY - y) * scale];
+    const baseScale = Math.min(plotWidth / dataWidth, plotHeight / dataHeight);
+
+    // Use the same transform logic as drawTraverse
+    const transform = (x, y) => {
+        const finalScale = baseScale * plotView.scale;
+        const tx = (x - minPlotX) * finalScale + plotView.offsetX;
+        const ty = (maxY - y) * finalScale + plotView.offsetY;
+        return [tx, ty];
+    };
 
     for (let i = 1; i < coordinates.length; i++) {
         const [p1x, p1y] = transform(coordinates[i - 1][0], coordinates[i - 1][1]);
