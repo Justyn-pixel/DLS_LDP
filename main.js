@@ -144,6 +144,7 @@ document.addEventListener('DOMContentLoaded', () => {
         manualControlsContainer.innerHTML = ''; // NEW: Clear manual controls
         clearCanvas(traversePlotCanvas); // NEW
         boundsEditorContainer.classList.add('hidden'); // NEW: Hide bounds editor
+        pocTextArea.value = ''; // NEW: Clear POC text on new file processing
 
         loader.classList.remove('hidden');
 
@@ -473,6 +474,7 @@ function parseLegalDescription(rawText, firstCurveRLOverride) {
     // State variables for the loop
     let lastSegmentCourseString = null;
     let lastSegmentWasCurve = false;
+    let lastCurveRL = null; // NEW: To track R/L of the previous curve
 
     // New, more robust parsing loop
     const lines = allLinesFromFile.map(l => l.trim()).filter(l => l !== '');
@@ -481,7 +483,7 @@ function parseLegalDescription(rawText, firstCurveRLOverride) {
     let currentSegmentData = [];
     let segmentCounter = 0;
 
-    const processAndStoreSegment = (segData, segType, segCounter, isFirst, lastCourse, lastWasCurve, startCoords) => {
+    const processAndStoreSegment = (segData, segType, segCounter, isFirst, lastCourse, lastWasCurve, prevCurveRL, startCoords) => {
         if (!segType || segData.length === 0) return;
 
         const result = processSegment(
@@ -491,19 +493,28 @@ function parseLegalDescription(rawText, firstCurveRLOverride) {
             firstCurveRLOverride,
             segCounter,
             isFirst,
+            lastWasCurve,
+            prevCurveRL,
             startCoords,
-            lastWasCurve
         );
 
         // Modify previous line if this is a curve
-        if (segType.toLowerCase() === 'curve' && result.tangencyStatus && formattedLines.length > 0) {
+        if (segType.toLowerCase() === 'curve' && result.tangencyType && formattedLines.length > 0) {
             let lastLine = formattedLines.pop();
             if (lastLine.endsWith('feet;')) {
-                if (result.tangencyStatus === 'non-tangent') {
-                    lastLine = lastLine.replace(/feet;$/, 'feet to a point of non-tangent curvature;');
-                } else {
-                    lastLine = lastLine.replace(/feet;$/, 'feet to a point of curvature;');
+                let phrase = 'to a point of curvature;'; // Default for tangent
+                switch (result.tangencyType) {
+                    case 'non-tangent':
+                        phrase = 'to a point of non-tangent curvature;';
+                        break;
+                    case 'compound':
+                        phrase = 'to a point of compound curvature;';
+                        break;
+                    case 'reverse':
+                        phrase = 'to a point of reverse curvature;';
+                        break;
                 }
+                lastLine = lastLine.replace(/feet;$/, `feet ${phrase}`);
             }
             formattedLines.push(lastLine);
         }
@@ -527,7 +538,8 @@ function parseLegalDescription(rawText, firstCurveRLOverride) {
         return {
             lastCourse: result.lastCourse,
             endCoordinates: result.endCoordinates,
-            lastWasCurve: segType.toLowerCase() === 'curve'
+            lastWasCurve: segType.toLowerCase() === 'curve',
+            lastCurveRL: result.segmentData ? result.segmentData.rl : null
         };
     };
 
@@ -540,12 +552,13 @@ function parseLegalDescription(rawText, firstCurveRLOverride) {
             // Process previous segment before starting a new one
             if (segmentType) {
                 const isFirstSegment = (formattedLines.length === 0);
-                const processResult = processAndStoreSegment(currentSegmentData, segmentType, segmentCounter, isFirstSegment, lastSegmentCourseString, lastSegmentWasCurve, currentCoordinates);
+                const processResult = processAndStoreSegment(currentSegmentData, segmentType, segmentCounter, isFirstSegment, lastSegmentCourseString, lastSegmentWasCurve, lastCurveRL, currentCoordinates);
 
                 // Update state for next loop/segment
                 if (processResult) {
                     if (processResult.lastCourse) lastSegmentCourseString = processResult.lastCourse;
                     lastSegmentWasCurve = processResult.lastWasCurve;
+                    lastCurveRL = processResult.lastCurveRL; // NEW
                     if (processResult.endCoordinates) {
                         currentCoordinates = processResult.endCoordinates;
                         coordinatesForPlotting.push(currentCoordinates);
@@ -573,7 +586,7 @@ function parseLegalDescription(rawText, firstCurveRLOverride) {
     // Process the very last segment
     if (segmentType) {
         const isFirstSegment = (formattedLines.length === 0);
-        const processResult = processAndStoreSegment(currentSegmentData, segmentType, segmentCounter, isFirstSegment, lastSegmentCourseString, lastSegmentWasCurve, currentCoordinates);
+        const processResult = processAndStoreSegment(currentSegmentData, segmentType, segmentCounter, isFirstSegment, lastSegmentCourseString, lastSegmentWasCurve, lastCurveRL, currentCoordinates);
         if (processResult && processResult.endCoordinates) {
             currentCoordinates = processResult.endCoordinates;
             coordinatesForPlotting.push(currentCoordinates);
@@ -826,7 +839,7 @@ function parseFileCoordinates(segmentData) {
     return null; // Not found
 }
 
-function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, currentSegmentNumber, isFirstSegment, startCoordinates, lastSegmentWasCurve) {
+function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, currentSegmentNumber, isFirstSegment, lastSegmentWasCurve, lastCurveRL, startCoordinates) {
     let outputText = "";
     let warning = null;
     let validationWarnings = []; // *** NEW ***
@@ -837,6 +850,7 @@ function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, c
         type: type
     };
     let tangencyStatus = null;
+    let tangencyType = null; // NEW: More descriptive: 'tangent', 'non-tangent', 'compound', 'reverse'
     const segmentContext = `(Segment #${currentSegmentNumber})`;
     const [startX, startY] = startCoordinates; // These are calculated relative coords
 
@@ -999,30 +1013,32 @@ function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, c
             let rlMethod3Result = null; // Result from Radial In vs Radial Out
 
             // --- Tangency Check ---
-            tangencyStatus = 'tangent'; // Assume tangent unless proven otherwise
+            tangencyType = 'tangent'; // Assume tangent unless proven otherwise
             let tangentInBearing = null;
             if (prevLineCourseStr) {
                 tangentInBearing = parseBearing(prevLineCourseStr);
                 curve.tangentInAzimuth = bearingToAzimuth(tangentInBearing);
             }
 
-            if (curve.tangentInAzimuth !== null && curve.courseInAzimuth !== null) {
-                const diff = Math.abs(curve.tangentInAzimuth - curve.courseInAzimuth);
-                const isEffectivelyCollinear = (Math.abs(diff) <= TANGENCY_TOLERANCE_DEGREES) ||
-                    (Math.abs(diff - 180) <= TANGENCY_TOLERANCE_DEGREES) ||
-                    (Math.abs(diff - 360) <= TANGENCY_TOLERANCE_DEGREES);
-                if (!isEffectivelyCollinear) {
-                    nonTangentLabelText = "(Non-Tangent)";
-                    tangencyStatus = 'non-tangent';
+            if (lastSegmentWasCurve) {
+                // This logic will be handled later when we determine R/L
+                tangencyType = 'unknown_curve_relation';
+            } else if (isFirstSegment) {
+                tangencyType = 'unknown'; // First segment, can't determine tangency yet
+            } else { // Preceded by a line
+                if (curve.tangentInAzimuth !== null && curve.courseInAzimuth !== null) {
+                    const diff = Math.abs(curve.tangentInAzimuth - curve.courseInAzimuth);
+                    const isEffectivelyCollinear = (Math.abs(diff) <= TANGENCY_TOLERANCE_DEGREES) ||
+                        (Math.abs(diff - 180) <= TANGENCY_TOLERANCE_DEGREES) ||
+                        (Math.abs(diff - 360) <= TANGENCY_TOLERANCE_DEGREES);
+                    if (!isEffectivelyCollinear) {
+                        nonTangentLabelText = "(Non-Tangent)";
+                        tangencyType = 'non-tangent';
+                    }
+                } else {
+                    // Not enough info to confirm tangency, assume non-tangent
+                    tangencyType = 'non-tangent';
                 }
-            } else if (prevLineCourseStr && curve.courseInAzimuth === null) {
-                tangencyStatus = 'inferred';
-            } else if (lastSegmentWasCurve) {
-                tangencyStatus = 'tangent'; // Assume compound
-            } else if (!isFirstSegment) { // Only flag non-tangent if NOT the first segment
-                tangencyStatus = 'non-tangent';
-            } else {
-                tangencyStatus = 'unknown'; // First segment, can't determine tangency yet
             }
 
 
@@ -1038,11 +1054,10 @@ function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, c
                     const deltaHalf = curve.deltaDecimal / 2;
                     if (Math.abs(Math.abs(deflectionToChord) - deltaHalf) < 2.5) {
                         rlMethod1Result = deflectionToChord > 0 ? "R" : "L";
-                        if (tangencyStatus === 'inferred') tangencyStatus = 'tangent';
                     } else {
-                        if (tangencyStatus !== 'non-tangent') {
+                        if (tangencyType === 'tangent') {
                             nonTangentLabelText = "(Non-Tangent)"; // Deflection mismatch implies non-tangency
-                            tangencyStatus = 'non-tangent';
+                            tangencyType = 'non-tangent';
                         }
                         rlMethod1Result = null; // Uncertain
                     }
@@ -1054,9 +1069,9 @@ function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, c
                     if (Math.abs(tanRadDiff - 90) < NINETY_DEG_TOLERANCE) rlMethod2Result = 'L';
                     else if (Math.abs(tanRadDiff + 90) < NINETY_DEG_TOLERANCE || Math.abs(tanRadDiff - 270) < NINETY_DEG_TOLERANCE) rlMethod2Result = 'R';
                     else { // Angle isn't close to +/- 90, likely non-tangent
-                        if (tangencyStatus === 'tangent' || tangencyStatus === 'inferred') {
+                        if (tangencyType === 'tangent') {
                             nonTangentLabelText = "(Non-Tangent)";
-                            tangencyStatus = 'non-tangent';
+                            tangencyType = 'non-tangent';
                         }
                         rlMethod2Result = null;
                     }
@@ -1099,12 +1114,22 @@ function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, c
 
             segmentDataObject.rl = rl_calc || "R/L";
 
+            // NEW: Refine tangencyType for curve-to-curve cases
+            if (tangencyType === 'unknown_curve_relation' && rl_calc && lastCurveRL) {
+                if (rl_calc === lastCurveRL) {
+                    tangencyType = 'compound';
+                } else {
+                    tangencyType = 'reverse';
+                }
+            }
+
+
             // --- Text Output ---
             const roundedChordSeconds = Math.round(curve.chordBearing.sec);
             outputText = `thence ${curve.length.toFixed(2)} feet along the arc of a ${curve.radius.toFixed(2)} foot radius curve to the ${rl_display}, through a central angle of ${formatDMS(dmsDelta)}, with a long chord of ${expandDirection(curve.chordBearing.dir1)} ${curve.chordBearing.deg}°${String(curve.chordBearing.min).padStart(2,'0')}'${String(roundedChordSeconds).padStart(2,'0')}" ${expandDirection(curve.chordBearing.dir2)} ${curve.chordLength.toFixed(2)} feet;`;
 
             // --- Next Tangent ---
-            if (tangencyStatus === 'tangent' && rl_calc && curve.tangentInAzimuth !== null) {
+            if (tangencyType !== 'non-tangent' && rl_calc && curve.tangentInAzimuth !== null) {
                 const tangentOutAzimuth = (curve.tangentInAzimuth + (rl_calc === 'R' ? curve.deltaDecimal : -curve.deltaDecimal) + 360) % 360;
                 const tangentOutBearing = azimuthToBearing(tangentOutAzimuth);
                 if (tangentOutBearing) {
@@ -1136,7 +1161,7 @@ function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, c
         lastCourse: lastCourseForNextSegment,
         endCoordinates: endCoordinates,
         segmentData: segmentDataObject,
-        tangencyStatus: tangencyStatus
+        tangencyType: tangencyType // NEW
     };
 }
 
