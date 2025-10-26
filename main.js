@@ -1,15 +1,22 @@
 // --- GLOBALS ---
-let parsedOutputForDownload = [];
-let segmentsDataForExport = []; // NEW: For CSV/KML
-let coordinatesForPlotting = []; // NEW: For Plot/KML/Calc
-let originalParsedOutputWithoutPoc = []; // NEW: To store the base parsed text
-let areaFromFile = null; // NEW: For comparison
-let filePobCoords = null; // *** NEW *** {north: Y, east: X}
-let uncertainSegmentIndices = []; // NEW: To track segments for highlighting
-let segmentBounds = {}; // NEW: To store bound text, e.g., { 1: "along Main St", 2: "..." }
-let selectedSegmentIndex = null; // NEW: To track the clicked segment (1-based index)
 
-// --- NEW: Plot View State ---
+// Central state object for the application
+let appState = {};
+
+function getInitialAppState() {
+    return {
+        parsedOutputForDownload: [],
+        segmentsDataForExport: [],
+        coordinatesForPlotting: [],
+        originalParsedOutputWithoutPoc: [],
+        areaFromFile: null,
+        filePobCoords: null, // {north: Y, east: X}
+        uncertainSegmentIndices: [],
+        segmentBounds: {}, // e.g., { 1: "along Main St", 2: "..." }
+        selectedSegmentIndex: null, // 1-based index
+    };
+}
+
 let plotView = {
     scale: 1.0,
     offsetX: 0,
@@ -19,7 +26,7 @@ let plotView = {
     lastPanY: 0,
     baseScale: 1.0, // NEW: To store the initial scale
     minX: 0, // NEW: To store data bounds
-    maxY: 0  // NEW: To store data bounds
+    maxY: 0 // NEW: To store data bounds
 };
 
 // --- CONSTANTS ---
@@ -33,6 +40,9 @@ const DELTA_TOLERANCE = 1.0; // Tolerance for Radial In vs Radial Out check (deg
 
 // --- DOM Event Listeners ---
 document.addEventListener('DOMContentLoaded', () => {
+    // Initialize state
+    appState = getInitialAppState();
+
     // Get all DOM elements
     const txtFileInput = document.getElementById('txtFile');
     const fileEncodingSelect = document.getElementById('fileEncoding');
@@ -63,6 +73,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const boundsEditorText = document.getElementById('boundsEditorText');
     const applyBoundsButton = document.getElementById('applyBoundsButton');
     const closeBoundsButton = document.getElementById('closeBoundsButton');
+
+    // Set initial canvas cursor style via JS
+    traversePlotCanvas.style.cursor = 'grab';
+
     // --- Drag & Drop / File Input Listeners ---
     selectFileButton.addEventListener('click', () => {
         txtFileInput.click();
@@ -112,18 +126,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Main Process Button Listener ---
     processButton.addEventListener('click', async () => {
         // 1. Reset all outputs
-        previewArea.value = '';
-        parsedOutputForDownload = [];
-        segmentsDataForExport = [];
-        coordinatesForPlotting = [
-            [0, 0]
-        ]; // Start at POB [0,0]
-        originalParsedOutputWithoutPoc = []; // NEW: Reset
-        areaFromFile = null;
-        filePobCoords = null; // *** NEW ***
-        uncertainSegmentIndices = []; // NEW: Reset highlighted segments
-        segmentBounds = {}; // NEW: Reset bounds
-        selectedSegmentIndex = null; // NEW: Reset selection
+        resetAppState();
         resetPlotView(); // NEW: Reset zoom/pan
 
         // Disable download buttons
@@ -169,7 +172,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const rawText = event.target.result;
 
                 // *** NEW: Parse POB Coordinates first ***
-                filePobCoords = parsePobCoordinates(rawText);
+                appState.filePobCoords = parsePobCoordinates(rawText);
                 // *** END NEW ***
 
                 // 2. Run the main parsing function
@@ -177,15 +180,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     formattedLines,
                     warnings,
                     areaSummaryLine,
-                    segmentsData,
-                    parsedAreaValue
+                    segmentsData
                 } = parseLegalDescription(rawText, firstCurveRLOverride);
 
                 // 3. Store results in globals
-                originalParsedOutputWithoutPoc = [...formattedLines]; // NEW
-                parsedOutputForDownload = [...formattedLines]; // Initially, the output is just the parsed lines
-                segmentsDataForExport = [...segmentsData];
-                areaFromFile = parsedAreaValue;
+                appState.originalParsedOutputWithoutPoc = [...formattedLines];
+                appState.parsedOutputForDownload = [...formattedLines];
+                appState.segmentsDataForExport = [...segmentsData];
+                // areaFromFile is set inside parseLegalDescription
 
                 if (areaSummaryLine) {
                     // Add the area line to both the original and the downloadable output
@@ -193,21 +195,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     parsedOutputForDownload.push(areaSummaryLine);
                 }
                 
-                previewArea.value = parsedOutputForDownload.join('\n');
+                previewArea.value = appState.parsedOutputForDownload.join('\n');
 
                 // 4. Update UI (Buttons)
-                if (parsedOutputForDownload.length > 0) {
+                if (appState.parsedOutputForDownload.length > 0) {
                     downloadButton.disabled = false;
                     addPocButton.disabled = false; // NEW: Enable POC button
                     downloadButton.classList.replace('bg-gray-400', 'bg-[#003366]');
                     downloadButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
                 }
-                if (segmentsDataForExport.length > 0) {
+                if (appState.segmentsDataForExport.length > 0) {
                     downloadCsvButton.disabled = false;
                     downloadCsvButton.classList.replace('bg-gray-400', 'bg-[#003366]');
                     downloadCsvButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
                 }
-                if (coordinatesForPlotting.length > 1) { // Enable DXF download
+                if (appState.coordinatesForPlotting.length > 1) { // Enable DXF download
                     downloadDxfButton.disabled = false;
                     downloadDxfButton.classList.replace('bg-gray-400', 'bg-[#003366]');
                     downloadDxfButton.classList.replace('hover:bg-gray-500', 'hover:bg-[#002244]');
@@ -217,7 +219,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 generateManualControls(warnings);
 
                 // 5. Update UI (Warnings)
-                if (!filePobCoords && rawText.includes("Point of Beginning")) { // Add POB warning if it looks like it should be there
+                if (!appState.filePobCoords && rawText.includes("Point of Beginning")) { // Add POB warning if it looks like it should be there
                     warnings.push("Could not parse 'Point of Beginning' coordinates in the file. Line endpoint validation skipped.");
                 }
                 if (warnings.length > 0) {
@@ -228,26 +230,26 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                     warningsContainer.classList.remove('hidden');
                     statusMessage.textContent = 'Processing complete. Please review warnings.';
-                } else if (parsedOutputForDownload.length > 0) {
+                } else if (appState.parsedOutputForDownload.length > 0) {
                     statusMessage.textContent = 'Processing complete. Ready to download.';
                 } else {
                     statusMessage.textContent = 'Processing complete. No data parsed.';
                 }
 
                 // 6. NEW: Run Calculations & Visualization
-                if (coordinatesForPlotting.length > 1) {
-                    calculateAndDisplayResults(coordinatesForPlotting, areaFromFile);
+                if (appState.coordinatesForPlotting.length > 1) {
+                    calculateAndDisplayResults(appState.coordinatesForPlotting, appState.areaFromFile);
                     // *** NEW: Add a high-level closure warning ***
-                    updatePlotScale(traversePlotCanvas, coordinatesForPlotting);
+                    updatePlotScale(traversePlotCanvas, appState.coordinatesForPlotting);
                     // Add a high-level closure warning
-                    const misclosureResults = calculateMisclosure(coordinatesForPlotting);
+                    const misclosureResults = calculateMisclosure(appState.coordinatesForPlotting);
                     const MIN_PRECISION_RATIO = 10000; // e.g., 1 in 10,000
                     if (misclosureResults && isFinite(misclosureResults.ratio) && misclosureResults.ratio < MIN_PRECISION_RATIO) {
                         warnings.push(`Poor traverse closure. Precision is 1 in ${Math.round(misclosureResults.ratio).toLocaleString()}, which is below the typical minimum of 1 in ${MIN_PRECISION_RATIO.toLocaleString()}. Check input data for errors.`);
                     }
                     // *** END NEW ***
                     resultsContainer.classList.remove('hidden');
-                    drawTraverse(traversePlotCanvas, coordinatesForPlotting, uncertainSegmentIndices, selectedSegmentIndex); // Pass uncertain segments
+                    drawTraverse(traversePlotCanvas, appState.coordinatesForPlotting, appState.uncertainSegmentIndices, appState.selectedSegmentIndex); // Pass uncertain segments
                 }
 
             } catch (error) {
@@ -269,13 +271,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Download Button Listeners ---
     downloadButton.addEventListener('click', async () => {
-        if (parsedOutputForDownload.length === 0) {
+        if (appState.parsedOutputForDownload.length === 0) {
             statusMessage.textContent = "No processed data to download.";
             return;
         }
         statusMessage.textContent = "Generating text file...";
         try {
-            await generateAndDownloadTxt(parsedOutputForDownload, "legal_description_parsed.txt");
+            await generateAndDownloadTxt(appState.parsedOutputForDownload, "legal_description_parsed.txt");
             statusMessage.textContent = 'Text file downloaded successfully!';
         } catch (error) {
             statusMessage.textContent = `Error downloading file: ${error.message}`;
@@ -284,13 +286,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // NEW: Download CSV
     downloadCsvButton.addEventListener('click', async () => {
-        if (segmentsDataForExport.length === 0) {
+        if (appState.segmentsDataForExport.length === 0) {
             statusMessage.textContent = "No segment data to download.";
             return;
         }
         statusMessage.textContent = "Generating CSV file...";
         try {
-            await generateAndDownloadCsv(segmentsDataForExport);
+            await generateAndDownloadCsv(appState.segmentsDataForExport);
             statusMessage.textContent = 'CSV file downloaded successfully!';
         } catch (error) {
             statusMessage.textContent = `Error downloading CSV: ${error.message}`;
@@ -299,13 +301,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // NEW: Download DXF (replaces KML)
     downloadDxfButton.addEventListener('click', async () => {
-        if (coordinatesForPlotting.length <= 1) {
+        if (appState.coordinatesForPlotting.length <= 1) {
             statusMessage.textContent = "No coordinate data to download.";
             return;
         }
         statusMessage.textContent = "Generating DXF file...";
         try {
-            await generateAndDownloadDxf(coordinatesForPlotting);
+            await generateAndDownloadDxf(appState.coordinatesForPlotting);
             statusMessage.textContent = 'DXF file downloaded successfully!';
         } catch (error) {
             statusMessage.textContent = `Error downloading KML: ${error.message}`;
@@ -340,43 +342,44 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Rebuild the output from the original parsed data + the area summary
-        finalOutputLines.push(...originalParsedOutputWithoutPoc);
+        finalOutputLines.push(...appState.originalParsedOutputWithoutPoc);
 
         // Update the global for download and the preview area
-        parsedOutputForDownload = finalOutputLines;
-        previewArea.value = parsedOutputForDownload.join('\n');
+        appState.parsedOutputForDownload = finalOutputLines;
+        previewArea.value = appState.parsedOutputForDownload.join('\n');
 
         // Give user feedback
         statusMessage.textContent = 'Point of Commencement updated.';
+        highlightTextInPreview(appState.selectedSegmentIndex); // Re-highlight text
     });
 
     // --- NEW: Bounds Editor Listeners ---
     traversePlotCanvas.addEventListener('click', (event) => {
-        if (coordinatesForPlotting.length < 2) return;
+        if (appState.coordinatesForPlotting.length < 2) return;
 
         const rect = traversePlotCanvas.getBoundingClientRect();
         const clickX = event.clientX - rect.left;
         const clickY = event.clientY - rect.top;
 
-        const clickedSegment = findClickedSegment(traversePlotCanvas, coordinatesForPlotting, clickX, clickY);
+        const clickedSegment = findClickedSegment(traversePlotCanvas, appState.coordinatesForPlotting, clickX, clickY);
 
         if (clickedSegment !== null) {
-            selectedSegmentIndex = clickedSegment;
-            openBoundsEditor(selectedSegmentIndex);
+            appState.selectedSegmentIndex = clickedSegment;
+            openBoundsEditor(appState.selectedSegmentIndex);
             // Smoothly scroll the editor into view
             boundsEditorContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
             // Redraw with highlight
-            highlightTextInPreview(selectedSegmentIndex);
-            drawTraverse(traversePlotCanvas, coordinatesForPlotting, uncertainSegmentIndices, selectedSegmentIndex); 
+            highlightTextInPreview(appState.selectedSegmentIndex);
+            drawTraverse(traversePlotCanvas, appState.coordinatesForPlotting, appState.uncertainSegmentIndices, appState.selectedSegmentIndex); 
         }
     });
 
     applyBoundsButton.addEventListener('click', () => {
         const boundText = boundsEditorText.value.trim();
         if (boundText) {
-            segmentBounds[selectedSegmentIndex] = boundText;
+            appState.segmentBounds[appState.selectedSegmentIndex] = boundText;
         } else {
-            delete segmentBounds[selectedSegmentIndex]; // Remove bound if text is cleared
+            delete appState.segmentBounds[appState.selectedSegmentIndex]; // Remove bound if text is cleared
         }
         reprocessWithOverrides(); // This will re-run everything with the new bound text
         closeBoundsEditor(); // Automatically close the editor after applying
@@ -397,7 +400,7 @@ document.addEventListener('DOMContentLoaded', () => {
         plotView.offsetX = mouseX - (mouseX - plotView.offsetX) * (plotView.scale / oldScale);
         plotView.offsetY = mouseY - (mouseY - plotView.offsetY) * (plotView.scale / oldScale);
 
-        drawTraverse(traversePlotCanvas, coordinatesForPlotting, uncertainSegmentIndices, selectedSegmentIndex);
+        drawTraverse(traversePlotCanvas, appState.coordinatesForPlotting, appState.uncertainSegmentIndices, appState.selectedSegmentIndex);
     });
 
     traversePlotCanvas.addEventListener('mousedown', (event) => {
@@ -424,14 +427,14 @@ document.addEventListener('DOMContentLoaded', () => {
             plotView.offsetY += dy;
             plotView.lastPanX = event.clientX;
             plotView.lastPanY = event.clientY;
-            drawTraverse(traversePlotCanvas, coordinatesForPlotting, uncertainSegmentIndices, selectedSegmentIndex);
+            drawTraverse(traversePlotCanvas, appState.coordinatesForPlotting, appState.uncertainSegmentIndices, appState.selectedSegmentIndex);
             return; // Don't check for hover if panning
         }
 
         const rect = traversePlotCanvas.getBoundingClientRect();
         const hoverX = event.clientX - rect.left;
         const hoverY = event.clientY - rect.top;
-        const hoveredSegment = findClickedSegment(traversePlotCanvas, coordinatesForPlotting, hoverX, hoverY);
+        const hoveredSegment = findClickedSegment(traversePlotCanvas, appState.coordinatesForPlotting, hoverX, hoverY);
         traversePlotCanvas.style.cursor = hoveredSegment !== null ? 'pointer' : 'grab';
     });
 
@@ -447,12 +450,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     resetPlotViewButton.addEventListener('click', () => {
         // Re-calculate the initial scale and center, which is the correct way to "reset"
-        updatePlotScale(traversePlotCanvas, coordinatesForPlotting);
-        drawTraverse(traversePlotCanvas, coordinatesForPlotting, uncertainSegmentIndices, selectedSegmentIndex);
+        updatePlotScale(traversePlotCanvas, appState.coordinatesForPlotting);
+        drawTraverse(traversePlotCanvas, appState.coordinatesForPlotting, appState.uncertainSegmentIndices, appState.selectedSegmentIndex);
     });
 
     closeBoundsButton.addEventListener('click', closeBoundsEditor);
 });
+
+// --- State Management ---
+function resetAppState() {
+    appState = getInitialAppState();
+}
 
 // --- Core Parsing Logic ---
 
@@ -482,11 +490,12 @@ function parseLegalDescription(rawText, firstCurveRLOverride) {
     const warnings = [];
     let segmentsData = []; // NEW
     let areaSummaryLine = null;
-    let parsedAreaValue = null;
 
     // Start traverse at [0, 0]
     let currentCoordinates = [0, 0];
-    // coordinatesForPlotting is global, already reset to [[0, 0]]
+    appState.coordinatesForPlotting = [
+        [0, 0]
+    ];
 
     // State variables for the loop
     let lastSegmentCourseString = null;
@@ -537,7 +546,7 @@ function parseLegalDescription(rawText, firstCurveRLOverride) {
         }
 
         // *** NEW: Add bound text if it exists for this segment ***
-        const boundText = segmentBounds[segCounter];
+        const boundText = appState.segmentBounds[segCounter];
         if (boundText && result.text) {
             // Replace the closing semicolon with the bound text and a new semicolon
             result.text = result.text.replace(/;$/, `, ${boundText};`);
@@ -578,7 +587,7 @@ function parseLegalDescription(rawText, firstCurveRLOverride) {
                     lastCurveRL = processResult.lastCurveRL; // NEW
                     if (processResult.endCoordinates) {
                         currentCoordinates = processResult.endCoordinates;
-                        coordinatesForPlotting.push(currentCoordinates);
+                        appState.coordinatesForPlotting.push(currentCoordinates);
                     }
                 }
             }
@@ -606,7 +615,7 @@ function parseLegalDescription(rawText, firstCurveRLOverride) {
         const processResult = processAndStoreSegment(currentSegmentData, segmentType, segmentCounter, isFirstSegment, lastSegmentCourseString, lastSegmentWasCurve, lastCurveRL, currentCoordinates);
         if (processResult && processResult.endCoordinates) {
             currentCoordinates = processResult.endCoordinates;
-            coordinatesForPlotting.push(currentCoordinates);
+            appState.coordinatesForPlotting.push(currentCoordinates);
         }
     }
 
@@ -619,7 +628,7 @@ function parseLegalDescription(rawText, firstCurveRLOverride) {
                 const sqFtValueString = areaMatch[1].replace(/,/g, '');
                 const sqFtValue = parseFloat(sqFtValueString);
                 if (!isNaN(sqFtValue)) {
-                    parsedAreaValue = sqFtValue; // NEW
+                    appState.areaFromFile = sqFtValue; // Store in state
                     const formattedSqFt = Math.round(sqFtValue).toLocaleString('en-US');
                     const acres = sqFtValue / 43560;
                     const formattedAcres = acres.toFixed(3);
@@ -641,8 +650,7 @@ function parseLegalDescription(rawText, firstCurveRLOverride) {
         formattedLines,
         warnings,
         areaSummaryLine,
-        segmentsData,
-        parsedAreaValue
+        segmentsData
     };
 }
 
@@ -650,7 +658,7 @@ function parseLegalDescription(rawText, firstCurveRLOverride) {
 function generateManualControls(warnings, existingOverrides = {}) {
     const manualControlsContainer = document.getElementById('manualControlsContainer');
     manualControlsContainer.innerHTML = ''; // Clear existing controls
-    uncertainSegmentIndices = []; // Clear previous uncertain indices on each generation
+    appState.uncertainSegmentIndices = []; // Clear previous uncertain indices on each generation
 
     const uncertainCurveWarnings = warnings.filter(w => w.includes("could not be determined automatically"));
 
@@ -672,7 +680,7 @@ function generateManualControls(warnings, existingOverrides = {}) {
     segmentsToControl.forEach(segmentNumber => {
         // Highlight if it's still uncertain
         if (uncertainCurveWarnings.some(w => w.includes(`Segment #${segmentNumber}`))) {
-            uncertainSegmentIndices.push(parseInt(segmentNumber));
+            appState.uncertainSegmentIndices.push(parseInt(segmentNumber));
         }
 
         const controlDiv = document.createElement('div');
@@ -705,30 +713,13 @@ function generateManualControls(warnings, existingOverrides = {}) {
     });
 }
 
-// *** NEW FUNCTION: Re-process on manual change ***
-async function reprocessWithOverrides() {
-    const txtFileInput = document.getElementById('txtFile');
-    const file = txtFileInput.files[0];
-    if (!file) return;
-
-    // Temporarily show loader
-    const loader = document.getElementById('loader');
-    loader.classList.remove('hidden');
-
-    // Reset outputs but keep file and overrides
-    parsedOutputForDownload = [];
-    segmentsDataForExport = [];
-    coordinatesForPlotting = [
-        [0, 0]
-    ];
-    areaFromFile = null;
-    uncertainSegmentIndices = []; // Reset for re-processing
-    filePobCoords = null;
-
-    const rawText = await file.text();
-    const firstCurveRLOverride = document.getElementById('firstCurveRL').value;
-
-    filePobCoords = parsePobCoordinates(rawText);
+// A shared parsing function to reduce code duplication
+function runParser(rawText, firstCurveRLOverride) {
+    // Reset parts of the state that are derived from parsing
+    appState.parsedOutputForDownload = [];
+    appState.segmentsDataForExport = [];
+    appState.coordinatesForPlotting = [ [0, 0] ];
+    appState.uncertainSegmentIndices = [];
 
     // *** NEW: Preserve existing manual overrides ***
     const existingOverrides = {};
@@ -741,55 +732,59 @@ async function reprocessWithOverrides() {
         }
     });
     // *** END NEW ***
+    
+    appState.filePobCoords = parsePobCoordinates(rawText);
 
-    // This is the key part: we call the main parser again.
-    // It will now use the selected values from the new dropdowns.
     const {
         formattedLines,
         warnings,
         areaSummaryLine,
-        segmentsData,
-        parsedAreaValue
+        segmentsData
     } = parseLegalDescription(rawText, firstCurveRLOverride);
 
-    // Regenerate manual controls for any *remaining* uncertain curves
-    generateManualControls(warnings, existingOverrides);
+    // Update state and UI
+    appState.parsedOutputForDownload = [...formattedLines];
+    if (areaSummaryLine) {
+        appState.parsedOutputForDownload.push(areaSummaryLine);
+    }
+    appState.segmentsDataForExport = [...segmentsData];
+    appState.originalParsedOutputWithoutPoc = [...appState.parsedOutputForDownload];
 
-    // Update warnings display
+    // Re-apply POC and update UI
+    document.getElementById('addPocButton').click(); // Trigger a POC update
+    document.getElementById('previewArea').value = appState.parsedOutputForDownload.join('\n');
+
+    // Regenerate controls and update warnings
+    generateManualControls(warnings, existingOverrides);
     const warningsContainer = document.getElementById('warningsContainer');
     const warningsAreaUL = warningsContainer.querySelector('#warningsArea ul');
     warningsAreaUL.innerHTML = '';
     if (warnings.length > 0) {
-        warnings.forEach(warning => {
-            const li = document.createElement('li');
-            li.textContent = warning;
-            warningsAreaUL.appendChild(li);
-        });
+        warnings.forEach(w => { warningsAreaUL.appendChild(Object.assign(document.createElement('li'), { textContent: w })); });
         warningsContainer.classList.remove('hidden');
     } else {
         warningsContainer.classList.add('hidden');
     }
 
-    // Update all globals and UI elements just like in the main process button
-    parsedOutputForDownload = [...formattedLines];
-    if (areaSummaryLine) {
-        // This blank line logic might be redundant now, but safe to keep
-        if (parsedOutputForDownload.length > 0 && parsedOutputForDownload[parsedOutputForDownload.length - 1].trim() !== "") {
-            parsedOutputForDownload.push("");
-        }
-        parsedOutputForDownload.push(areaSummaryLine);
-    }
-    segmentsDataForExport = [...segmentsData];
-    areaFromFile = parsedAreaValue;
+    // Update plot and results
+    calculateAndDisplayResults(appState.coordinatesForPlotting, appState.areaFromFile);
+    updatePlotScale(document.getElementById('traversePlot'), appState.coordinatesForPlotting);
+    drawTraverse(document.getElementById('traversePlot'), appState.coordinatesForPlotting, appState.uncertainSegmentIndices, appState.selectedSegmentIndex);
+}
 
-    // NEW: Update the base output and then re-apply the POC
-    originalParsedOutputWithoutPoc = [...parsedOutputForDownload];
-    document.getElementById('addPocButton').click(); // Trigger a POC update
+// *** NEW FUNCTION: Re-process on manual change ***
+async function reprocessWithOverrides() {
+    const txtFileInput = document.getElementById('txtFile');
+    const file = txtFileInput.files[0];
+    if (!file) return;
 
-    document.getElementById('previewArea').value = parsedOutputForDownload.join('\n');
-    calculateAndDisplayResults(coordinatesForPlotting, areaFromFile);
-    updatePlotScale(document.getElementById('traversePlot'), coordinatesForPlotting);
-    drawTraverse(document.getElementById('traversePlot'), coordinatesForPlotting, uncertainSegmentIndices, selectedSegmentIndex);
+    const loader = document.getElementById('loader');
+    loader.classList.remove('hidden');
+
+    const rawText = await file.text();
+    const firstCurveRLOverride = document.getElementById('firstCurveRL').value;
+
+    runParser(rawText, firstCurveRLOverride); // Use the shared function
 
     loader.classList.add('hidden');
 }
@@ -905,8 +900,8 @@ function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, c
                     endCoordinates = calculateEndpoint(startX, startY, azimuth, length);
 
                     // *** NEW: Validate Line Endpoint Coordinates ***
-                    const fileEndpointCoords = parseFileCoordinates(segmentData);
-                    if (filePobCoords && fileEndpointCoords) { // If we found coordinates in the file
+                    const fileEndpointCoords = parseFileCoordinates(segmentData); // If we found coordinates in the file
+                    if (appState.filePobCoords && fileEndpointCoords) {
                         // And we were able to calculate our own...
                         if (!endCoordinates) {
                              validationWarnings.push(`Segment ${segmentContext}: Could not calculate an endpoint, so file coordinates could not be validated.`);
@@ -1004,8 +999,8 @@ function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, c
             }
 
             // *** NEW: Validate Curve Endpoint Coordinates (similar to lines) ***
-            const fileEndpointCoords = parseFileCoordinates(segmentData);
-            if (filePobCoords && fileEndpointCoords) { // If we found coordinates in the file
+            const fileEndpointCoords = parseFileCoordinates(segmentData); // If we found coordinates in the file
+            if (appState.filePobCoords && fileEndpointCoords) {
                 // And we were able to calculate our own...
                 if (!endCoordinates) {
                     validationWarnings.push(`Segment ${segmentContext}: Could not calculate a curve endpoint, so file coordinates could not be validated.`);
@@ -1645,8 +1640,8 @@ function openBoundsEditor(segmentIndex) {
     const boundsEditorSegmentLabel = document.getElementById('boundsEditorSegmentLabel');
     const boundsEditorText = document.getElementById('boundsEditorText');
 
-    boundsEditorSegmentLabel.textContent = `Adding bound for Segment #${segmentIndex}.`;
-    boundsEditorText.value = segmentBounds[segmentIndex] || ''; // Populate with existing text or empty
+    boundsEditorSegmentLabel.textContent = `Adding bound for Segment #${segmentIndex}.`; // Populate with existing text or empty
+    boundsEditorText.value = appState.segmentBounds[segmentIndex] || '';
     boundsEditorContainer.classList.remove('hidden');
     boundsEditorText.focus();
 }
@@ -1654,10 +1649,10 @@ function openBoundsEditor(segmentIndex) {
 function closeBoundsEditor() {
     const boundsEditorContainer = document.getElementById('boundsEditorContainer');
     boundsEditorContainer.classList.add('hidden');
-    selectedSegmentIndex = null; // Deselect
+    appState.selectedSegmentIndex = null; // Deselect
     // Redraw to remove highlight
     highlightTextInPreview(null); // NEW: Clear text highlight
-    drawTraverse(document.getElementById('traversePlot'), coordinatesForPlotting, uncertainSegmentIndices, null);
+    drawTraverse(document.getElementById('traversePlot'), appState.coordinatesForPlotting, appState.uncertainSegmentIndices, null);
 }
 
 function findClickedSegment(canvas, coordinates, clickX, clickY) {
@@ -1714,8 +1709,9 @@ function highlightTextInPreview(segmentIndex) {
 
     const lines = previewArea.value.split('\n');
 
-    // Calculate the line index in the textarea.
-    // If POC text exists, it adds that text and a blank line, so we offset by 2.
+    // Calculate the line index in the textarea. The POC text, if it exists,
+    // adds itself and a blank line to the top of the text area, so we must
+    // offset the segment index by 2 to find the correct line.
     const offset = pocText ? 2 : 0;
     const lineIndex = segmentIndex - 1 + offset; // segmentIndex is 1-based
 
