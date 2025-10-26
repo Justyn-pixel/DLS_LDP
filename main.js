@@ -445,7 +445,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     resetPlotViewButton.addEventListener('click', () => {
-        resetPlotView();
+        // Re-calculate the initial scale and center, which is the correct way to "reset"
+        updatePlotScale(traversePlotCanvas, coordinatesForPlotting);
         drawTraverse(traversePlotCanvas, coordinatesForPlotting, uncertainSegmentIndices, selectedSegmentIndex);
     });
 
@@ -1558,11 +1559,6 @@ function drawTraverse(canvas, coordinates, segmentsToHighlight = [], selectedSeg
     const ctx = canvas.getContext('2d');
     clearCanvas(canvas);
 
-    // 1. Find bounds
-    let minX = coordinates[0][0],
-        maxX = coordinates[0][0]; // These are only used for the single-point case now
-    let minY = coordinates[0][1],
-        maxY = coordinates[0][1];
     
     if (coordinates.length === 1) {
         // Single point, draw a dot
@@ -1577,8 +1573,8 @@ function drawTraverse(canvas, coordinates, segmentsToHighlight = [], selectedSeg
     // We flip Y because canvas (0,0) is top-left, but survey (0,0) is bottom-left
     const transform = (x, y) => {
         const finalScale = plotView.baseScale * plotView.scale;
-        const tx = (x - plotView.minX) * finalScale + plotView.offsetX;
-        const ty = (plotView.maxY - y) * finalScale + plotView.offsetY; // Flip Y-axis
+        const tx = (x - plotView.minX) * finalScale + plotView.offsetX; // Use plotView's minX
+        const ty = (plotView.maxY - y) * finalScale + plotView.offsetY; // Use plotView's maxY and flip Y-axis
         return [tx, ty];
     };
 
