@@ -238,6 +238,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (coordinatesForPlotting.length > 1) {
                     calculateAndDisplayResults(coordinatesForPlotting, areaFromFile);
                     // *** NEW: Add a high-level closure warning ***
+                    updatePlotScale(traversePlotCanvas, coordinatesForPlotting);
                     // Add a high-level closure warning
                     const misclosureResults = calculateMisclosure(coordinatesForPlotting);
                     const MIN_PRECISION_RATIO = 10000; // e.g., 1 in 10,000
@@ -414,6 +415,25 @@ document.addEventListener('DOMContentLoaded', () => {
         traversePlotCanvas.classList.replace('cursor-grabbing', 'cursor-grab');
     });
 
+    traversePlotCanvas.addEventListener('mousemove', (event) => {
+        if (plotView.isPanning) {
+            const dx = event.clientX - plotView.lastPanX;
+            const dy = event.clientY - plotView.lastPanY;
+            plotView.offsetX += dx;
+            plotView.offsetY += dy;
+            plotView.lastPanX = event.clientX;
+            plotView.lastPanY = event.clientY;
+            drawTraverse(traversePlotCanvas, coordinatesForPlotting, uncertainSegmentIndices, selectedSegmentIndex);
+            return; // Don't check for hover if panning
+        }
+
+        const rect = traversePlotCanvas.getBoundingClientRect();
+        const hoverX = event.clientX - rect.left;
+        const hoverY = event.clientY - rect.top;
+        const hoveredSegment = findClickedSegment(traversePlotCanvas, coordinatesForPlotting, hoverX, hoverY);
+        traversePlotCanvas.style.cursor = hoveredSegment !== null ? 'pointer' : 'grab';
+    });
+
     traversePlotCanvas.addEventListener('contextmenu', (event) => {
         // Prevent right-click context menu from appearing on the canvas
         event.preventDefault();
@@ -421,18 +441,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     traversePlotCanvas.addEventListener('mouseleave', () => {
         plotView.isPanning = false;
-        traversePlotCanvas.classList.replace('cursor-grabbing', 'cursor-grab');
-    });
-
-    traversePlotCanvas.addEventListener('mousemove', (event) => {
-        if (!plotView.isPanning) return;
-        const dx = event.clientX - plotView.lastPanX;
-        const dy = event.clientY - plotView.lastPanY;
-        plotView.offsetX += dx;
-        plotView.offsetY += dy;
-        plotView.lastPanX = event.clientX;
-        plotView.lastPanY = event.clientY;
-        drawTraverse(traversePlotCanvas, coordinatesForPlotting, uncertainSegmentIndices, selectedSegmentIndex);
+        traversePlotCanvas.style.cursor = 'grab'; // Reset cursor on leave
     });
 
     resetPlotViewButton.addEventListener('click', () => {
@@ -777,6 +786,7 @@ async function reprocessWithOverrides() {
 
     document.getElementById('previewArea').value = parsedOutputForDownload.join('\n');
     calculateAndDisplayResults(coordinatesForPlotting, areaFromFile);
+    updatePlotScale(document.getElementById('traversePlot'), coordinatesForPlotting);
     drawTraverse(document.getElementById('traversePlot'), coordinatesForPlotting, uncertainSegmentIndices, selectedSegmentIndex);
 
     loader.classList.add('hidden');
@@ -1500,10 +1510,8 @@ function resetPlotView() {
     plotView.maxY = 0;
 }
 
-function drawTraverse(canvas, coordinates, segmentsToHighlight = [], selectedSegment = null) {
+function updatePlotScale(canvas, coordinates) {
     if (coordinates.length < 1) return;
-    const ctx = canvas.getContext('2d');
-    clearCanvas(canvas);
 
     // 1. Find bounds
     let minX = coordinates[0][0],
@@ -1525,7 +1533,38 @@ function drawTraverse(canvas, coordinates, segmentsToHighlight = [], selectedSeg
     const dataWidth = maxX - minX;
     const dataHeight = maxY - minY;
 
-    if (dataWidth === 0 && dataHeight === 0) {
+    // Ensure non-zero dimensions for scaling
+    const effectiveDataWidth = dataWidth === 0 ? 1 : dataWidth;
+    const effectiveDataHeight = dataHeight === 0 ? 1 : dataHeight;
+
+    const scaleX = plotWidth / effectiveDataWidth;
+    const scaleY = plotHeight / effectiveDataHeight;
+
+    // Store base scale and bounds in the plotView object for reuse
+    plotView.baseScale = Math.min(scaleX, scaleY);
+    plotView.minX = minX;
+    plotView.maxY = maxY;
+
+    // Center the initial drawing
+    plotView.offsetX = padding + (plotWidth - dataWidth * plotView.baseScale) / 2;
+    plotView.offsetY = padding + (plotHeight - dataHeight * plotView.baseScale) / 2;
+    plotView.scale = 1.0; // Reset zoom level
+    plotView.isPanning = false;
+}
+
+
+function drawTraverse(canvas, coordinates, segmentsToHighlight = [], selectedSegment = null) {
+    if (coordinates.length < 1) return;
+    const ctx = canvas.getContext('2d');
+    clearCanvas(canvas);
+
+    // 1. Find bounds
+    let minX = coordinates[0][0],
+        maxX = coordinates[0][0]; // These are only used for the single-point case now
+    let minY = coordinates[0][1],
+        maxY = coordinates[0][1];
+    
+    if (coordinates.length === 1) {
         // Single point, draw a dot
         ctx.fillStyle = '#003366';
         ctx.beginPath();
@@ -1533,30 +1572,13 @@ function drawTraverse(canvas, coordinates, segmentsToHighlight = [], selectedSeg
         ctx.fill();
         return;
     }
-    // Ensure non-zero dimensions for scaling
-    const effectiveDataWidth = dataWidth === 0 ? 1 : dataWidth;
-    const effectiveDataHeight = dataHeight === 0 ? 1 : dataHeight;
-
-    const scaleX = plotWidth / effectiveDataWidth;
-    const scaleY = plotHeight / effectiveDataHeight; 
-    
-    // NEW: Store base scale and bounds in the plotView object for reuse
-    plotView.baseScale = Math.min(scaleX, scaleY);
-    plotView.minX = minX;
-    plotView.maxY = maxY;
-
-    // Center the initial drawing if not panned/zoomed
-    if (plotView.scale === 1.0 && plotView.offsetX === 0 && plotView.offsetY === 0) {
-        plotView.offsetX = padding + (plotWidth - dataWidth * plotView.baseScale) / 2;
-        plotView.offsetY = padding + (plotHeight - dataHeight * plotView.baseScale) / 2;
-    }
     
     // 3. Create transform function
     // We flip Y because canvas (0,0) is top-left, but survey (0,0) is bottom-left
     const transform = (x, y) => {
         const finalScale = plotView.baseScale * plotView.scale;
-        const tx = (x - minX) * finalScale + plotView.offsetX;
-        const ty = (maxY - y) * finalScale + plotView.offsetY; // Flip Y-axis
+        const tx = (x - plotView.minX) * finalScale + plotView.offsetX;
+        const ty = (plotView.maxY - y) * finalScale + plotView.offsetY; // Flip Y-axis
         return [tx, ty];
     };
 
@@ -1642,7 +1664,7 @@ function closeBoundsEditor() {
 
 function findClickedSegment(canvas, coordinates, clickX, clickY) {
     // This function finds the closest segment to a click
-    let closestSegmentIndex = null;
+    let closestSegmentIndex = null; 
     let minDistance = 15; // Click tolerance in pixels
 
     // NEW: Use the shared plotView state to create the transform function
