@@ -1554,7 +1554,7 @@ function drawTraverse(canvas, coordinates, segmentsToHighlight = [], selectedSeg
     // 3. Create transform function
     // We flip Y because canvas (0,0) is top-left, but survey (0,0) is bottom-left
     const transform = (x, y) => {
-        const finalScale = baseScale * plotView.scale;
+        const finalScale = plotView.baseScale * plotView.scale;
         const tx = (x - minX) * finalScale + plotView.offsetX;
         const ty = (maxY - y) * finalScale + plotView.offsetY; // Flip Y-axis
         return [tx, ty];
