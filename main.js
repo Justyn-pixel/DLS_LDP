@@ -75,6 +75,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const closeBoundsButton = document.getElementById('closeBoundsButton');
 
     // Set initial canvas cursor style via JS
+    // Call resizeCanvas once on load to set the initial size correctly.
+    // It's good practice to call it after a short delay to allow the layout to settle.
+    setTimeout(() => resizeCanvas(true), 100);
+    window.addEventListener('resize', () => resizeCanvas(true));
+
     traversePlotCanvas.style.cursor = 'grab';
 
     // --- Drag & Drop / File Input Listeners ---
@@ -251,6 +256,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     resultsContainer.classList.remove('hidden');
                     drawTraverse(traversePlotCanvas, appState.coordinatesForPlotting, appState.uncertainSegmentIndices, appState.selectedSegmentIndex); // Pass uncertain segments
                 }
+                resizeCanvas(); // Ensure canvas is sized correctly after drawing
 
             } catch (error) {
                 console.error('Error processing file:', error);
@@ -357,10 +363,18 @@ document.addEventListener('DOMContentLoaded', () => {
     traversePlotCanvas.addEventListener('click', (event) => {
         if (appState.coordinatesForPlotting.length < 2) return;
 
+        // --- FIX: Scale mouse coordinates before hit detection ---
         const rect = traversePlotCanvas.getBoundingClientRect();
-        const clickX = event.clientX - rect.left;
-        const clickY = event.clientY - rect.top;
+        const mouseX = event.clientX - rect.left;
+        const mouseY = event.clientY - rect.top;
 
+        // Scale the mouse coordinates to match the canvas's internal coordinate system
+        const scaleX = traversePlotCanvas.width / rect.width;
+        const scaleY = traversePlotCanvas.height / rect.height;
+        const clickX = mouseX * scaleX;
+        const clickY = mouseY * scaleY;
+        // --- END FIX ---
+        
         const clickedSegment = findClickedSegment(traversePlotCanvas, appState.coordinatesForPlotting, clickX, clickY);
 
         if (clickedSegment !== null) {
@@ -431,10 +445,18 @@ document.addEventListener('DOMContentLoaded', () => {
             return; // Don't check for hover if panning
         }
 
+        // --- FIX: Scale mouse coordinates for hover detection ---
         const rect = traversePlotCanvas.getBoundingClientRect();
-        const hoverX = event.clientX - rect.left;
-        const hoverY = event.clientY - rect.top;
+        const mouseX = event.clientX - rect.left;
+        const mouseY = event.clientY - rect.top;
+
+        const scaleX = traversePlotCanvas.width / rect.width;
+        const scaleY = traversePlotCanvas.height / rect.height;
+        const hoverX = mouseX * scaleX;
+        const hoverY = mouseY * scaleY;
+        // --- END FIX ---
         const hoveredSegment = findClickedSegment(traversePlotCanvas, appState.coordinatesForPlotting, hoverX, hoverY);
+
         traversePlotCanvas.style.cursor = hoveredSegment !== null ? 'pointer' : 'grab';
     });
 
@@ -1487,6 +1509,31 @@ function calculateAndDisplayResults(coordinates, areaFromFile) {
     }
 }
 
+// --- NEW: Canvas Resizing Function ---
+function resizeCanvas(redraw = false) {
+    const canvas = document.getElementById('traversePlot');
+    if (!canvas) return;
+
+    // Get the size the browser is displaying the canvas in
+    const {
+        width,
+        height
+    } = canvas.getBoundingClientRect();
+
+    // Check if the canvas's internal resolution is different
+    if (canvas.width !== width || canvas.height !== height) {
+        // Update the internal resolution to match the display size
+        canvas.width = width;
+        canvas.height = height;
+
+        // If there's data, re-calculate scale and redraw
+        if (redraw && appState.coordinatesForPlotting && appState.coordinatesForPlotting.length > 0) {
+            updatePlotScale(canvas, appState.coordinatesForPlotting);
+            drawTraverse(canvas, appState.coordinatesForPlotting, appState.uncertainSegmentIndices, appState.selectedSegmentIndex);
+        }
+    }
+}
+
 // --- Visualization Functions ---
 
 function clearCanvas(canvas) {
@@ -1587,7 +1634,7 @@ function drawTraverse(canvas, coordinates, segmentsToHighlight = [], selectedSeg
     for (let i = 1; i < coordinates.length; i++) {
         const isUncertain = segmentsToHighlight.includes(i);
         const isSelected = (i === selectedSegment);
-        const hasBound = segmentBounds.hasOwnProperty(i) && segmentBounds[i] !== '';
+        const hasBound = appState.segmentBounds.hasOwnProperty(i) && appState.segmentBounds[i] !== '';
 
         if (isSelected) {
             ctx.strokeStyle = '#FFC72C'; // Yellow for selected
