@@ -16,7 +16,10 @@ let plotView = {
     offsetY: 0,
     isPanning: false,
     lastPanX: 0,
-    lastPanY: 0
+    lastPanY: 0,
+    baseScale: 1.0, // NEW: To store the initial scale
+    minX: 0, // NEW: To store data bounds
+    maxY: 0  // NEW: To store data bounds
 };
 
 // --- CONSTANTS ---
@@ -359,7 +362,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (clickedSegment !== null) {
             selectedSegmentIndex = clickedSegment;
             openBoundsEditor(selectedSegmentIndex);
-            drawTraverse(traversePlotCanvas, coordinatesForPlotting, uncertainSegmentIndices, selectedSegmentIndex); // Redraw with highlight
+            // Smoothly scroll the editor into view
+            boundsEditorContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Redraw with highlight
+            drawTraverse(traversePlotCanvas, coordinatesForPlotting, uncertainSegmentIndices, selectedSegmentIndex); 
         }
     });
 
@@ -1490,6 +1496,7 @@ function resetPlotView() {
         lastPanX: 0,
         lastPanY: 0
     };
+    // The other plotView properties (baseScale, minX, maxY) will be reset by the next drawTraverse call
 }
 
 function drawTraverse(canvas, coordinates, segmentsToHighlight = [], selectedSegment = null) {
@@ -1531,14 +1538,18 @@ function drawTraverse(canvas, coordinates, segmentsToHighlight = [], selectedSeg
 
     const scaleX = plotWidth / effectiveDataWidth;
     const scaleY = plotHeight / effectiveDataHeight; 
-    const baseScale = Math.min(scaleX, scaleY);
+    
+    // NEW: Store base scale and bounds in the plotView object for reuse
+    plotView.baseScale = Math.min(scaleX, scaleY);
+    plotView.minX = minX;
+    plotView.maxY = maxY;
 
     // Center the initial drawing if not panned/zoomed
     if (plotView.scale === 1.0 && plotView.offsetX === 0 && plotView.offsetY === 0) {
-        plotView.offsetX = padding + (plotWidth - dataWidth * baseScale) / 2;
-        plotView.offsetY = padding + (plotHeight - dataHeight * baseScale) / 2;
+        plotView.offsetX = padding + (plotWidth - dataWidth * plotView.baseScale) / 2;
+        plotView.offsetY = padding + (plotHeight - dataHeight * plotView.baseScale) / 2;
     }
-
+    
     // 3. Create transform function
     // We flip Y because canvas (0,0) is top-left, but survey (0,0) is bottom-left
     const transform = (x, y) => {
@@ -1633,30 +1644,17 @@ function findClickedSegment(canvas, coordinates, clickX, clickY) {
     let closestSegmentIndex = null;
     let minDistance = 15; // Click tolerance in pixels
 
-    // Re-create the transform function from drawTraverse
-    let minPlotX = coordinates[0][0], maxX = coordinates[0][0];
-    let minPlotY = coordinates[0][1], maxY = coordinates[0][1];
-    coordinates.forEach(([x, y]) => {
-        if (x < minPlotX) minPlotX = x; if (x > maxX) maxX = x;
-        if (y < minPlotY) minPlotY = y; if (y > maxY) maxY = y;
-    });
-    const padding = 20;
-    const plotWidth = canvas.width - 2 * padding;
-    const plotHeight = canvas.height - 2 * padding;
-    const dataWidth = maxX - minPlotX || 1;
-    const dataHeight = maxY - minPlotY || 1;
-    const baseScale = Math.min(plotWidth / dataWidth, plotHeight / dataHeight);
-
-    // Use the same transform logic as drawTraverse
+    // NEW: Use the shared plotView state to create the transform function
+    // This ensures it matches the current view exactly.
     const transform = (x, y) => {
-        const finalScale = baseScale * plotView.scale;
-        const tx = (x - minPlotX) * finalScale + plotView.offsetX;
-        const ty = (maxY - y) * finalScale + plotView.offsetY;
+        const finalScale = plotView.baseScale * plotView.scale;
+        const tx = (x - plotView.minX) * finalScale + plotView.offsetX;
+        const ty = (plotView.maxY - y) * finalScale + plotView.offsetY;
         return [tx, ty];
     };
 
     for (let i = 1; i < coordinates.length; i++) {
-        const [p1x, p1y] = transform(coordinates[i - 1][0], coordinates[i - 1][1]);
+        const [p1x, p1y] = transform(coordinates[i - 1][0], coordinates[i - 1][1]); 
         const [p2x, p2y] = transform(coordinates[i][0], coordinates[i][1]);
 
         // Simplified distance from point to line segment
