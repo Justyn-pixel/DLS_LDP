@@ -32,9 +32,9 @@
             <div class="flex-1 mb-4 sm:mb-0">
                 <label for="fileEncoding" class="block text-xs font-medium text-gray-600 mb-1">
                     Encoding:
-                    <span class="info-icon-container relative inline-block">
+                    <span class="info-icon-container relative inline-block group">
                         <span class="info-icon inline-block w-4 h-4 leading-4 text-center rounded-full bg-[#003366] text-white text-[10px] font-bold cursor-help ml-1">i</span>
-                        <span class="tooltip absolute w-56 bg-gray-800 text-white text-left rounded-lg p-2 z-10 bottom-full left-1/2 -translate-x-1/2 mb-2 text-xs leading-tight">Select file encoding. If you see strange characters (like ), try a different encoding or re-save your file as UTF-8.
+                        <span class="tooltip absolute w-56 bg-gray-800 text-white text-left rounded-lg p-2 z-10 bottom-full left-1/2 -translate-x-1/2 mb-2 text-xs leading-tight invisible opacity-0 group-hover:visible group-hover:opacity-100 transition-opacity">Select file encoding. If you see strange characters (like ), try a different encoding or re-save your file as UTF-8.
                             <span class="absolute top-full left-1/2 -translate-x-1/2 border-4 border-solid border-transparent border-t-gray-800"></span>
                         </span>
                     </span>
@@ -48,9 +48,9 @@
             <div class="flex-1">
                 <label for="firstCurveRL" class="block text-xs font-medium text-gray-600 mb-1">
                     1st Curve Dir:
-                    <span class="info-icon-container relative inline-block">
+                    <span class="info-icon-container relative inline-block group">
                         <span class="info-icon inline-block w-4 h-4 leading-4 text-center rounded-full bg-[#003366] text-white text-[10px] font-bold cursor-help ml-1">i</span>
-                        <span class="tooltip absolute w-56 bg-gray-800 text-white text-left rounded-lg p-2 z-10 bottom-full left-1/2 -translate-x-1/2 mb-2 text-xs leading-tight">If the very first segment in your file is a curve, specify its direction (Left/Right) here. Otherwise, 'Auto-detect' is recommended.
+                        <span class="tooltip absolute w-56 bg-gray-800 text-white text-left rounded-lg p-2 z-10 bottom-full left-1/2 -translate-x-1/2 mb-2 text-xs leading-tight invisible opacity-0 group-hover:visible group-hover:opacity-100 transition-opacity">If the very first segment in your file is a curve, specify its direction (Left/Right) here. Otherwise, 'Auto-detect' is recommended.
                             <span class="absolute top-full left-1/2 -translate-x-1/2 border-4 border-solid border-transparent border-t-gray-800"></span>
                         </span>
                     </span>
@@ -127,8 +127,11 @@
 
             <div>
                 <div>
-                    <label for="traversePlot" class="block text-sm font-medium text-gray-700 mb-1">Traverse Plot:</label>
-                    <canvas id="traversePlot" width="400" height="300" class="w-full h-auto aspect-[4/3]"></canvas>
+                    <div class="relative">
+                        <label for="traversePlot" class="block text-sm font-medium text-gray-700 mb-1">Traverse Plot (Scroll to zoom, Drag to pan):</label>
+                        <canvas id="traversePlot" width="400" height="300" class="w-full h-auto aspect-[4/3] cursor-grab"></canvas>
+                        <button id="resetPlotView" class="absolute top-2 right-2 bg-white/80 hover:bg-white text-gray-600 text-xs font-semibold py-1 px-2 rounded-md border border-gray-300 shadow-sm" title="Reset Plot View">Reset</button>
+                    </div>
                 </div>
 
                 <div id="resultsContainer" class="mt-6 hidden">
