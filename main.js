@@ -1488,15 +1488,16 @@ function clearCanvas(canvas) {
 }
 
 function resetPlotView() {
-    plotView = {
-        scale: 1.0,
-        offsetX: 0,
-        offsetY: 0,
-        isPanning: false,
-        lastPanX: 0,
-        lastPanY: 0
-    };
-    // The other plotView properties (baseScale, minX, maxY) will be reset by the next drawTraverse call
+    // Reset properties on the existing object instead of reassigning it
+    plotView.scale = 1.0;
+    plotView.offsetX = 0;
+    plotView.offsetY = 0;
+    plotView.isPanning = false;
+    plotView.lastPanX = 0;
+    plotView.lastPanY = 0;
+    plotView.baseScale = 1.0;
+    plotView.minX = 0;
+    plotView.maxY = 0;
 }
 
 function drawTraverse(canvas, coordinates, segmentsToHighlight = [], selectedSegment = null) {
