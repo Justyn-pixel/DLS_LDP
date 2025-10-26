@@ -1547,8 +1547,8 @@ function updatePlotScale(canvas, coordinates) {
     plotView.maxY = maxY;
 
     // Center the initial drawing
-    plotView.offsetX = padding + (plotWidth - dataWidth * plotView.baseScale) / 2;
-    plotView.offsetY = padding + (plotHeight - dataHeight * plotView.baseScale) / 2;
+    plotView.offsetX = padding + (plotWidth - (dataWidth * plotView.baseScale)) / 2;
+    plotView.offsetY = padding + (plotHeight - (dataHeight * plotView.baseScale)) / 2;
     plotView.scale = 1.0; // Reset zoom level
     plotView.isPanning = false;
 }
