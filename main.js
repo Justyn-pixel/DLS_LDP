@@ -906,8 +906,8 @@ function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, c
                         if (!endCoordinates) {
                              validationWarnings.push(`Segment ${segmentContext}: Could not calculate an endpoint, so file coordinates could not be validated.`);
                         } else {
-                        const fileRelativeX = fileEndpointCoords.east - filePobCoords.east;
-                        const fileRelativeY = fileEndpointCoords.north - filePobCoords.north;
+                        const fileRelativeX = fileEndpointCoords.east - appState.filePobCoords.east;
+                        const fileRelativeY = fileEndpointCoords.north - appState.filePobCoords.north;
                         const calcX = endCoordinates[0];
                         const calcY = endCoordinates[1];
 
@@ -1005,8 +1005,8 @@ function processSegment(segmentData, type, prevLineCourseStr, curveRLOverride, c
                 if (!endCoordinates) {
                     validationWarnings.push(`Segment ${segmentContext}: Could not calculate a curve endpoint, so file coordinates could not be validated.`);
                 } else {
-                    const fileRelativeX = fileEndpointCoords.east - filePobCoords.east;
-                    const fileRelativeY = fileEndpointCoords.north - filePobCoords.north;
+                    const fileRelativeX = fileEndpointCoords.east - appState.filePobCoords.east;
+                    const fileRelativeY = fileEndpointCoords.north - appState.filePobCoords.north;
                     const calcX = endCoordinates[0];
                     const calcY = endCoordinates[1];
 
