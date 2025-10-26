@@ -191,8 +191,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (areaSummaryLine) {
                     // Add the area line to both the original and the downloadable output
-                    originalParsedOutputWithoutPoc.push(areaSummaryLine);
-                    parsedOutputForDownload.push(areaSummaryLine);
+                    appState.originalParsedOutputWithoutPoc.push(areaSummaryLine);
+                    appState.parsedOutputForDownload.push(areaSummaryLine);
                 }
                 
                 previewArea.value = appState.parsedOutputForDownload.join('\n');
