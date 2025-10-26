@@ -1731,7 +1731,17 @@ async function generateAndDownloadCsv(segmentsData) {
 
 // NEW: Download DXF
 async function generateAndDownloadDxf(coordinates) {
+    if (coordinates.length < 2) {
+        throw new Error("Not enough coordinates to generate a DXF file.");
+    }
+
     try {
+        // Check if the polyline is closed
+        const startPt = coordinates[0];
+        const endPt = coordinates[coordinates.length - 1];
+        const isClosed = (Math.abs(startPt[0] - endPt[0]) < GEOMETRY_TOLERANCE && Math.abs(startPt[1] - endPt[1]) < GEOMETRY_TOLERANCE);
+        const polylineFlag = isClosed ? 1 : 0;
+
         let dxfContent = `  0
 SECTION
   2
@@ -1739,29 +1749,13 @@ HEADER
   9
 $ACADVER
   1
-AC1009
+AC1014
   0
 ENDSEC
   0
 SECTION
   2
 TABLES
-  0
-TABLE
-  2
-LAYER
-  0
-LAYER
-  2
-0
- 70
-     0
- 62
-     7
-  6
-CONTINUOUS
-  0
-ENDTAB
   0
 ENDSEC
   0
@@ -1775,22 +1769,26 @@ POLYLINE
  66
      1
  70
-     1
+${polylineFlag}
 `;
         coordinates.forEach(([x, y]) => {
             dxfContent += `  0
 VERTEX
   8
 0
+ 70
+     0
  10
 ${x.toFixed(4)}
  20
 ${y.toFixed(4)}
-  0
 `;
         });
 
-        dxfContent += `SEQEND
+        dxfContent += `  0
+SEQEND
+  8
+0
   0
 ENDSEC
   0
